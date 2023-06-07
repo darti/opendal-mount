@@ -1,0 +1,31 @@
+[package]
+name = "opendal-mount"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1"
+log = "0.4"
+anyhow = "1"
+
+opendal = { version = "0.37", features = ["services-sftp"] }
+nfsserve = "0.10"
+
+bimap = "0.6"
+
+futures = "0.3"
+async-trait = "0.1"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "fs",
+    "time",
+    "sync",
+    "tracing",
+] }
+
+tokio-console = "0.1.8"
+console-subscriber = { version = "0.1" }
