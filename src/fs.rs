@@ -1,6 +1,8 @@
+use futures::TryStreamExt;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    path::Path,
     sync::Arc,
 };
 
@@ -8,8 +10,8 @@ use async_trait::async_trait;
 use bimap::BiMap;
 use log::debug;
 use nfsserve::{
-    nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, sattr3},
-    vfs::{NFSFileSystem, ReadDirResult, VFSCapabilities},
+    nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
+    vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
 };
 use opendal::{Entry, Metakey, Operator};
 use tokio::sync::RwLock;
@@ -30,21 +32,70 @@ impl OpendalFs {
         }
     }
 
-    async fn get_inode(&self, path: String) -> u64 {
-        self.inodes
-            .read()
-            .await
-            .get_by_right(&path)
-            .copied()
-            .unwrap_or_else(|| {
+    async fn inode_to_path(&self, inode: u64) -> Option<String> {
+        self.inodes.read().await.get_by_left(&inode).cloned()
+    }
+
+    async fn path_to_inode(&self, path: &str) -> u64 {
+        let ino = self.inodes.read().await.get_by_right(path).copied();
+
+        match ino {
+            Some(ino) => ino,
+            None => {
                 let mut hasher = DefaultHasher::new();
                 path.hash(&mut hasher);
                 let ino = hasher.finish();
 
-                self.inodes.blocking_write().insert(ino, path);
+                let mut inodes = self.inodes.write().await;
+                (*inodes).insert(ino, path.to_owned());
 
                 ino
+            }
+        }
+    }
+
+    async fn path_to_attr(&self, path: &str) -> Result<fattr3, nfsstat3> {
+        let entry = Entry::new(path);
+        // let meta = self.operator.metadata(&entry, Metakey::Mode).await;
+
+        let ino = self.path_to_inode(path).await;
+
+        if let Ok(meta) = self.operator.metadata(&entry, Metakey::Mode).await {
+            let kind = if meta.is_dir() {
+                ftype3::NF3DIR
+            } else {
+                ftype3::NF3REG
+            };
+
+            let mtime = if let Some(mtime) = meta.last_modified() {
+                nfstime3 {
+                    seconds: mtime.timestamp() as u32,
+                    nseconds: 0,
+                }
+            } else {
+                nfstime3::default()
+            };
+
+            let mode = if meta.is_dir() { 0o777 } else { 0o755 };
+
+            Ok(fattr3 {
+                ftype: kind,
+                mode,
+                nlink: 0,
+                uid: 507,
+                gid: 507,
+                size: meta.content_length(),
+                used: meta.content_length(),
+                rdev: specdata3::default(),
+                fsid: 0,
+                fileid: ino,
+                atime: mtime,
+                mtime,
+                ctime: mtime,
             })
+        } else {
+            Err(nfsstat3::NFS3ERR_NOTSUPP)
+        }
     }
 }
 
@@ -87,7 +138,18 @@ impl NFSFileSystem for OpendalFs {
 
     async fn lookup(&self, dirid: fileid3, filename: &filename3) -> Result<fileid3, nfsstat3> {
         debug!("lookup {:?} {:?}", dirid, filename);
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+
+        if let Ok(filename) = std::str::from_utf8(&filename.0) {
+            if let Some(path) = self.inode_to_path(dirid).await {
+                let path = Path::new(&path).join(filename);
+
+                self.path_to_inode(&path.display().to_string()).await;
+
+                return Err(nfsstat3::NFS3ERR_NOENT);
+            }
+        }
+
+        Err(nfsstat3::NFS3ERR_NOENT)
     }
 
     async fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
@@ -96,32 +158,7 @@ impl NFSFileSystem for OpendalFs {
         let path = self.inodes.read().await;
         let path = path.get_by_left(&id).ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        let entry = Entry::new(&path);
-        // let meta = self.operator.metadata(&entry, Metakey::Mode).await;
-        if let Ok(meta) = self.operator.metadata(&entry, Metakey::Mode).await {
-            let mut fattr = fattr3::default();
-
-            fattr.ftype = if meta.is_dir() {
-                ftype3::NF3DIR
-            } else {
-                ftype3::NF3REG
-            };
-            // fattr.mode = meta.mode;
-            // fattr.uid = meta.uid;
-            // fattr.gid = meta.gid;
-            // fattr.size = meta.size;
-            // fattr.atime.seconds = meta.atime;
-            // fattr.mtime.seconds = meta.mtime;
-            // fattr.ctime.seconds = meta.ctime;
-            // fattr.nlink = meta.nlink;
-            // fattr.rdev = meta.rdev;
-            // fattr.blksize = meta.blksize;
-            // fattr.blocks = meta.blocks;
-
-            Ok(fattr)
-        } else {
-            Err(nfsstat3::NFS3ERR_NOTSUPP)
-        }
+        self.path_to_attr(path).await
     }
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
         debug!("setattr {:?} {:?}", id, setattr);
@@ -145,7 +182,33 @@ impl NFSFileSystem for OpendalFs {
         max_entries: usize,
     ) -> Result<ReadDirResult, nfsstat3> {
         debug!("readdir {:?} {:?} {:?}", dirid, start_after, max_entries);
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+
+        let path = self
+            .inode_to_path(dirid)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        let mut ds = self
+            .operator
+            .list(&path)
+            .await
+            .map_err(|_| nfsstat3::NFS3ERR_NOENT)?;
+
+        let mut entries = Vec::new();
+
+        while let Some(de) = ds.try_next().await.unwrap() {
+            let id = self.path_to_inode(de.path()).await;
+
+            if let Ok(attr) = self.getattr(id).await {
+                entries.push(DirEntry {
+                    attr,
+                    fileid: id,
+                    name: de.name().as_bytes().into(),
+                })
+            }
+        }
+
+        Ok(ReadDirResult { entries, end: true })
     }
 
     /// Removes a file.

@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
     console_subscriber::init();
 
     let mut builder = Fs::default();
-    builder.root(".");
+    builder.root("./src");
 
     let fs = OpendalFs::new(Operator::new(builder)?.finish());
 
