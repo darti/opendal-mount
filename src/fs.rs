@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiMap;
-use log::debug;
+use log::{debug, info};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
@@ -143,9 +143,7 @@ impl NFSFileSystem for OpendalFs {
             if let Some(path) = self.inode_to_path(dirid).await {
                 let path = Path::new(&path).join(filename);
 
-                self.path_to_inode(&path.display().to_string()).await;
-
-                return Err(nfsstat3::NFS3ERR_NOENT);
+                return Ok(self.path_to_inode(&path.display().to_string()).await);
             }
         }
 
@@ -203,7 +201,7 @@ impl NFSFileSystem for OpendalFs {
                 entries.push(DirEntry {
                     attr,
                     fileid: id,
-                    name: de.name().as_bytes().into(),
+                    name: de.name().trim_end_matches('/').as_bytes().into(),
                 })
             }
         }

@@ -18,6 +18,7 @@ bimap = "0.6"
 futures = "0.3"
 async-trait = "0.1"
 tokio = { version = "1", features = [
+    "rt",
     "rt-multi-thread",
     "macros",
     "signal",
