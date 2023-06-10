@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let mut builder = Fs::default();
     builder.root("./src");
 
-    let fs = OpendalFs::new(Operator::new(builder)?.finish());
+    let fs = OpendalFs::new(Operator::new(builder)?.finish(), false);
 
     tokio::spawn(async {
         let listener = NFSTcpListener::bind(&format!("127.0.0.1:{HOSTPORT}"), fs)

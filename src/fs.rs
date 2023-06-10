@@ -19,16 +19,18 @@ use tokio::sync::RwLock;
 pub struct OpendalFs {
     operator: Operator,
     inodes: Arc<RwLock<BiMap<u64, String>>>,
+    read_only: bool,
 }
 
 impl OpendalFs {
-    pub fn new(operator: Operator) -> Self {
+    pub fn new(operator: Operator, read_only: bool) -> Self {
         let mut inodes = BiMap::new();
         inodes.insert(1, "/".to_string());
 
         OpendalFs {
             operator,
             inodes: Arc::new(RwLock::new(inodes)),
+            read_only,
         }
     }
 
@@ -65,7 +67,7 @@ impl OpendalFs {
             .metadata(&entry, Metakey::Mode)
             .await
             .map_err(|e| {
-                info!("");
+                info!("unable to get metadata for {:?}: {}", path, e);
                 nfsstat3::NFS3ERR_NOENT
             })?;
 
@@ -114,7 +116,11 @@ impl NFSFileSystem for OpendalFs {
 
     fn capabilities(&self) -> VFSCapabilities {
         debug!("capabilities");
-        VFSCapabilities::ReadWrite
+        if self.read_only {
+            VFSCapabilities::ReadOnly
+        } else {
+            VFSCapabilities::ReadWrite
+        }
     }
 
     async fn write(&self, id: fileid3, offset: u64, data: &[u8]) -> Result<fattr3, nfsstat3> {
