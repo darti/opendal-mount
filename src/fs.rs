@@ -1,4 +1,4 @@
-use futures::{stream, TryStreamExt};
+use futures::{future, stream, StreamExt, TryStreamExt};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -57,9 +57,7 @@ impl OpendalFs {
         }
     }
 
-    async fn path_to_attr(&self, path: &str) -> Result<fattr3, nfsstat3> {
-        let ino = self.path_to_inode(path, false).await?;
-
+    async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
         let entry = Entry::new(path);
 
         let meta = self
@@ -170,7 +168,7 @@ impl NFSFileSystem for OpendalFs {
             .await
             .ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        self.path_to_attr(&path).await
+        self.path_to_attr(id, &path).await
     }
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
         debug!("setattr {:?} {:?}", id, setattr);
@@ -228,16 +226,26 @@ impl NFSFileSystem for OpendalFs {
 
         let mut entries = Vec::new();
 
+        let mut capture: bool = start_after == 0;
+
         while let Some(de) = ds.try_next().await.unwrap() {
             let id = self.path_to_inode(de.path(), true).await?;
 
-            if let Ok(attr) = self.getattr(id).await {
-                entries.push(DirEntry {
-                    attr,
-                    fileid: id,
-                    name: de.name().trim_end_matches('/').as_bytes().into(),
-                })
+            if capture {
+                if let Ok(attr) = self.getattr(id).await {
+                    entries.push(DirEntry {
+                        attr,
+                        fileid: id,
+                        name: de.name().trim_end_matches('/').as_bytes().into(),
+                    });
+
+                    if entries.len() >= max_entries {
+                        break;
+                    }
+                }
             }
+
+            capture = capture || id == start_after;
         }
 
         Ok(ReadDirResult { entries, end: true })
