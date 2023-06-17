@@ -41,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     let composite = {
         let mut builder = Overlay::default();
+        builder.base(fs1).overlay(fs2);
 
         Operator::new(builder)?.finish()
     };

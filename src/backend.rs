@@ -11,17 +11,17 @@ use crate::{
 
 #[derive(Default, Debug)]
 pub struct Overlay {
-    remote: Option<Operator>,
     overlay: Option<Operator>,
+    base: Option<Operator>,
 }
 
 impl Overlay {
-    pub fn remote(mut self, remote: Operator) -> Self {
-        self.remote = Some(remote);
+    pub fn base(&mut self, remote: Operator) -> &mut Self {
+        self.base = Some(remote);
         self
     }
 
-    pub fn overlay(mut self, overlay: Operator) -> Self {
+    pub fn overlay(&mut self, overlay: Operator) -> &mut Self {
         self.overlay = Some(overlay);
         self
     }
