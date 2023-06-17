@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use opendal::{
     raw::{Accessor, AccessorInfo},
-    Builder, Operator, Scheme,
+    Builder, Capability, Operator, Scheme,
 };
 
 use crate::{
@@ -10,12 +10,12 @@ use crate::{
 };
 
 #[derive(Default, Debug)]
-pub struct OverlayBuilder {
+pub struct Overlay {
     remote: Option<Operator>,
     overlay: Option<Operator>,
 }
 
-impl OverlayBuilder {
+impl Overlay {
     pub fn remote(mut self, remote: Operator) -> Self {
         self.remote = Some(remote);
         self
@@ -27,7 +27,7 @@ impl OverlayBuilder {
     }
 }
 
-impl Builder for OverlayBuilder {
+impl Builder for Overlay {
     const SCHEME: opendal::Scheme = Scheme::Custom("overlay");
 
     type Accessor = OverlayBackend;
@@ -58,6 +58,12 @@ impl Accessor for OverlayBackend {
     type BlockingPager = Option<OverlayPager>;
 
     fn info(&self) -> AccessorInfo {
-        AccessorInfo::default()
+        let mut am = AccessorInfo::default();
+        am.set_scheme(Scheme::Custom("overlay"))
+            .set_capability(Capability {
+                ..Default::default()
+            });
+
+        am
     }
 }
