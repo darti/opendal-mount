@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use log::info;
 use nfsserve::tcp::{NFSTcp, NFSTcpListener};
-use opendal::{services::Fs, Operator};
+use opendal::{raw::Operation, services::Fs, Operator};
 use opendal_mount::{OpendalFs, Overlay};
 use tokio::{
     select,
@@ -13,6 +13,24 @@ use tokio::{
 
 const HOSTPORT: u32 = 12000;
 
+fn policy(
+    path: &str,
+    overlay: Operator,
+    base: Operator,
+    op: Operation,
+) -> opendal::Result<Operator> {
+    match op {
+        Operation::Stat => {
+            if path == "world.txt" {
+                Ok(overlay)
+            } else {
+                Ok(base)
+            }
+        }
+        _ => Ok(base),
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     console_subscriber::init();
@@ -20,28 +38,28 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() != 4 {
-        return Err(anyhow!(
-            "Usage: local_overlay <mnt_point> <folder_1> <folder_2>"
-        ));
+        return Err(anyhow!("Usage: local_overlay <mnt_point> <base> <overlay>"));
     }
 
-    let fs1 = {
-        let mut builder = Fs::default();
-        builder.root(&args[1]);
+    let mount_point = &args[2];
 
-        Operator::new(builder)?.finish()
-    };
-
-    let fs2 = {
+    let base = {
         let mut builder = Fs::default();
         builder.root(&args[2]);
 
         Operator::new(builder)?.finish()
     };
 
+    let overlay = {
+        let mut builder = Fs::default();
+        builder.root(&args[3]);
+
+        Operator::new(builder)?.finish()
+    };
+
     let composite = {
         let mut builder = Overlay::default();
-        builder.base(fs1).overlay(fs2);
+        builder.base(base).overlay(overlay).policy(policy);
 
         Operator::new(builder)?.finish()
     };
