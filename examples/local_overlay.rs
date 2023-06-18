@@ -31,6 +31,18 @@ fn policy(
     }
 }
 
+fn init_service(base_root: &str, overlay_root: &str) -> opendal::Result<Operator> {
+    let mut base_builder = Fs::default();
+    base_builder.root(base_root);
+
+    let mut overlay_builder = Fs::default();
+    overlay_builder.root(overlay_root);
+
+    let overlay = Overlay::new(overlay_builder)?;
+
+    Ok(Operator::new(base_builder)?.layer(overlay).finish())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     console_subscriber::init();
@@ -41,30 +53,10 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow!("Usage: local_overlay <mnt_point> <base> <overlay>"));
     }
 
-    let mount_point = &args[2];
+    let mount_point = &args[1];
 
-    let base = {
-        let mut builder = Fs::default();
-        builder.root(&args[2]);
-
-        Operator::new(builder)?.finish()
-    };
-
-    let overlay = {
-        let mut builder = Fs::default();
-        builder.root(&args[3]);
-
-        Operator::new(builder)?.finish()
-    };
-
-    let composite = {
-        let mut builder = Overlay::default();
-        builder.base(base).overlay(overlay).policy(policy);
-
-        Operator::new(builder)?.finish()
-    };
-
-    let fs = OpendalFs::new(composite, false);
+    let fs = init_service(&args[2], &args[3])?;
+    let fs = OpendalFs::new(fs, false);
 
     tokio::spawn(async {
         let listener = NFSTcpListener::bind(&format!("127.0.0.1:{HOSTPORT}"), fs)
