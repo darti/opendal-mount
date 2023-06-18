@@ -19,30 +19,30 @@ type SourcePolicy = fn(&str, Operator, Operator, Operation) -> opendal::Result<O
 pub struct Overlay {}
 
 impl Overlay {
-    pub fn new<B: Builder>(mut builder: B) -> opendal::Result<OverlayLayer> {
-        let accessor = builder.build()?;
-        Ok(OverlayLayer {})
+    pub fn new<B: Builder>(mut builder: B) -> opendal::Result<OverlayLayer<B::Accessor>> {
+        let overlay = builder.build()?;
+        Ok(OverlayLayer { overlay })
     }
 }
 
 #[derive(Default, Debug)]
-pub struct OverlayLayer {
-    // overlay: A,
+pub struct OverlayLayer<O: Accessor> {
+    overlay: O,
 }
 
-impl<A: Accessor> Layer<A> for OverlayLayer {
+impl<A: Accessor, O: Accessor> Layer<A> for OverlayLayer<O> {
     type LayeredAccessor = OverlayAccessor<A>;
 
     fn layer(&self, inner: A) -> Self::LayeredAccessor {
-        todo!()
+        OverlayAccessor { inner }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct OverlayAccessor<A: Accessor> {
-    overlay: Operator,
+    // overlay: Operator,
     inner: A,
-    policy: SourcePolicy,
+    // policy: SourcePolicy,
 }
 
 #[async_trait]

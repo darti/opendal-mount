@@ -1,5 +1,5 @@
-mod backend;
 mod fs;
+mod overlay;
 
-pub use backend::Overlay;
 pub use fs::OpendalFs;
+pub use overlay::Overlay;
