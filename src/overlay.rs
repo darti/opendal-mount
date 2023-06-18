@@ -1,15 +1,18 @@
 use std::{
     io,
+    sync::Arc,
     task::{Context, Poll},
 };
 
 use async_trait::async_trait;
 
 use bytes::Bytes;
+use log::debug;
 use opendal::{
     raw::{
-        oio, Accessor, Layer, LayeredAccessor, OpAppend, OpList, OpRead, OpWrite, Operation,
-        RpAppend, RpList, RpRead, RpWrite,
+        oio::{self},
+        Accessor, Layer, LayeredAccessor, OpAppend, OpList, OpRead, OpStat, OpWrite, Operation,
+        RpAppend, RpList, RpRead, RpStat, RpWrite,
     },
     Builder, Operator, Result,
 };
@@ -21,43 +24,56 @@ pub struct Overlay {}
 impl Overlay {
     pub fn new<B: Builder>(mut builder: B) -> opendal::Result<OverlayLayer<B::Accessor>> {
         let overlay = builder.build()?;
-        Ok(OverlayLayer { overlay })
+        Ok(OverlayLayer {
+            overlay: Arc::new(overlay),
+        })
     }
 }
 
 #[derive(Default, Debug)]
-pub struct OverlayLayer<O: Accessor> {
-    overlay: O,
+pub struct OverlayLayer<B: Accessor> {
+    overlay: Arc<B>,
 }
 
-impl<A: Accessor, O: Accessor> Layer<A> for OverlayLayer<O> {
-    type LayeredAccessor = OverlayAccessor<A>;
+impl<A: Accessor, B: Accessor> Layer<A> for OverlayLayer<B> {
+    type LayeredAccessor = OverlayAccessor<A, B>;
 
     fn layer(&self, inner: A) -> Self::LayeredAccessor {
-        OverlayAccessor { inner }
+        OverlayAccessor {
+            base: inner,
+            overlay: self.overlay.clone(),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct OverlayAccessor<A: Accessor> {
-    // overlay: Operator,
-    inner: A,
+pub struct OverlayAccessor<B: Accessor, O: Accessor> {
+    base: B,
+    overlay: Arc<O>,
     // policy: SourcePolicy,
 }
 
 #[async_trait]
-impl<A: Accessor> LayeredAccessor for OverlayAccessor<A> {
-    type Inner = A;
-    type Reader = OverlayWrapper<A::Reader>;
-    type BlockingReader = OverlayWrapper<A::BlockingReader>;
-    type Writer = OverlayWrapper<A::Writer>;
-    type BlockingWriter = OverlayWrapper<A::BlockingWriter>;
-    type Appender = OverlayWrapper<A::Appender>;
-    type Pager = Option<OverlayWrapper<A::Pager>>;
-    type BlockingPager = Option<OverlayWrapper<A::BlockingPager>>;
+impl<B: Accessor, O: Accessor> LayeredAccessor for OverlayAccessor<B, O> {
+    type Inner = B;
+    type Reader = OverlayWrapper<O::Reader>;
+    type BlockingReader = OverlayWrapper<O::BlockingReader>;
+    type Writer = OverlayWrapper<O::Writer>;
+    type BlockingWriter = OverlayWrapper<O::BlockingWriter>;
+    type Appender = OverlayWrapper<O::Appender>;
+    type Pager = OverlayPager<B::Pager, O::Pager>;
+    type BlockingPager = OverlayWrapper<O::BlockingPager>;
 
     fn inner(&self) -> &Self::Inner {
-        &self.inner
+        &self.base
+    }
+
+    async fn stat(&self, path: &str, args: OpStat) -> Result<RpStat> {
+        if let Ok(meta) = self.overlay.stat(path, args.clone()).await {
+            Ok(meta)
+        } else {
+            self.inner().stat(path, args).await
+        }
     }
 
     async fn read(&self, path: &str, args: OpRead) -> Result<(RpRead, Self::Reader)> {
@@ -73,7 +89,10 @@ impl<A: Accessor> LayeredAccessor for OverlayAccessor<A> {
     }
 
     async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Pager)> {
-        todo!()
+        let (rp, base) = self.base.list(path, args.clone()).await?;
+        let (_, overlay) = self.overlay.list(path, args).await?;
+
+        Ok((rp, OverlayPager::new(base, overlay)))
     }
 
     fn blocking_read(&self, path: &str, args: OpRead) -> Result<(RpRead, Self::BlockingReader)> {
@@ -152,10 +171,35 @@ impl<R: oio::BlockingWrite> oio::BlockingWrite for OverlayWrapper<R> {
     }
 }
 
+pub struct OverlayPager<B: oio::Page, O: oio::Page> {
+    base: B,
+    overlay: O,
+}
+
+impl<B: oio::Page, O: oio::Page> OverlayPager<B, O> {
+    fn new(base: B, overlay: O) -> Self {
+        OverlayPager { base, overlay }
+    }
+}
+
 #[async_trait]
-impl<R: oio::Page> oio::Page for OverlayWrapper<R> {
+impl<A: oio::Page, B: oio::Page> oio::Page for OverlayPager<A, B> {
     async fn next(&mut self) -> Result<Option<Vec<oio::Entry>>> {
-        self.inner.next().await
+        let overlay = self.overlay.next().await?;
+        let base = self.base.next().await?;
+
+        let entries = match (overlay, base) {
+            (Some(ov), None) => Some(ov),
+            (None, Some(ba)) => Some(ba),
+            (None, None) => None,
+            (Some(ov), Some(ba)) => {
+                let mut entries = ov;
+                entries.extend(ba);
+                Some(entries)
+            }
+        };
+
+        Ok(entries)
     }
 }
 
