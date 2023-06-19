@@ -1,4 +1,4 @@
-use futures::{future, stream, StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
