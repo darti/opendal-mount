@@ -1,8 +1,8 @@
 use anyhow::anyhow;
 use log::info;
 use nfsserve::tcp::{NFSTcp, NFSTcpListener};
-use opendal::{raw::Operation, services::Fs, Operator};
-use opendal_mount::{OpendalFs, Overlay};
+use opendal::{services::Fs, Operator};
+use opendal_mount::{OpendalFs, Overlay, Policy, Source};
 use tokio::{
     select,
     signal::{
@@ -13,21 +13,16 @@ use tokio::{
 
 const HOSTPORT: u32 = 12000;
 
-fn policy(
-    path: &str,
-    overlay: Operator,
-    base: Operator,
-    op: Operation,
-) -> opendal::Result<Operator> {
-    match op {
-        Operation::Stat => {
-            if path == "world.txt" {
-                Ok(overlay)
-            } else {
-                Ok(base)
-            }
-        }
-        _ => Ok(base),
+#[derive(Debug)]
+struct OverlayPolicy;
+
+impl Policy for OverlayPolicy {
+    fn stat(&self, path: &str) -> Option<Source> {
+        todo!()
+    }
+
+    fn reader(&self, path: &str) -> Option<Source> {
+        todo!()
     }
 }
 
@@ -38,7 +33,7 @@ fn init_service(base_root: &str, overlay_root: &str) -> opendal::Result<Operator
     let mut overlay_builder = Fs::default();
     overlay_builder.root(overlay_root);
 
-    let overlay = Overlay::new(overlay_builder)?;
+    let overlay = Overlay::new(overlay_builder, OverlayPolicy)?;
 
     Ok(Operator::new(base_builder)?.layer(overlay).finish())
 }

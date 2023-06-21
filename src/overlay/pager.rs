@@ -38,6 +38,12 @@ pub struct OverlayBlockingPager<B: oio::BlockingPage, O: oio::BlockingPage> {
     overlay: O,
 }
 
+impl<B: oio::BlockingPage, O: oio::BlockingPage> OverlayBlockingPager<B, O> {
+    pub fn new(base: B, overlay: O) -> Self {
+        OverlayBlockingPager { base, overlay }
+    }
+}
+
 impl<B: oio::BlockingPage, O: oio::BlockingPage> oio::BlockingPage for OverlayBlockingPager<B, O> {
     fn next(&mut self) -> Result<Option<Vec<oio::Entry>>> {
         let overlay = self.overlay.next()?;
