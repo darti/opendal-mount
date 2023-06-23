@@ -1,11 +1,18 @@
+mod naive;
+
+pub use naive::NaivePolicy;
+
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use opendal::raw::oio::{self, Page};
 use opendal::raw::{oio::Read, OpRead};
 use opendal::raw::{Accessor, OpStat, RpRead, RpStat};
 
 use opendal::Result;
+
+use super::reader::OverlayReader;
 
 pub enum Source {
     Base,
@@ -22,11 +29,17 @@ pub trait Policy: Debug + Send + Sync + 'static {
         args: OpStat,
     ) -> Result<RpStat>;
 
-    async fn read<B: Accessor, O: Accessor, R: Read>(
+    async fn read<B: Accessor, O: Accessor>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpRead,
-    ) -> Result<(RpRead, R)>;
+    ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)>;
+
+    async fn next<B: Page, O: Page>(
+        &self,
+        base: &mut B,
+        overlay: &mut O,
+    ) -> Result<Option<Vec<oio::Entry>>>;
 }

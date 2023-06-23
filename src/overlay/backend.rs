@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use futures::FutureExt;
 use opendal::{
     raw::{
         Accessor, Layer, LayeredAccessor, OpAppend, OpList, OpRead, OpStat, OpWrite, RpAppend,
@@ -44,7 +45,7 @@ impl<B: Accessor, O: Accessor, P: Policy> Layer<B> for OverlayLayer<O, P> {
 
     fn layer(&self, inner: B) -> Self::LayeredAccessor {
         OverlayAccessor {
-            base: inner,
+            base: Arc::new(inner),
             overlay: self.overlay.clone(),
             policy: self.policy.clone(),
         }
@@ -53,7 +54,7 @@ impl<B: Accessor, O: Accessor, P: Policy> Layer<B> for OverlayLayer<O, P> {
 
 #[derive(Debug, Clone)]
 pub struct OverlayAccessor<B: Accessor, O: Accessor, P: Policy> {
-    base: B,
+    base: Arc<B>,
     overlay: Arc<O>,
     policy: Arc<P>,
 }
@@ -66,7 +67,7 @@ impl<B: Accessor, O: Accessor, P: Policy> LayeredAccessor for OverlayAccessor<B,
     type Writer = OverlayWriter<O::Writer, B::Writer>;
     type BlockingWriter = OverlayBlockingWriter<O::BlockingWriter, B::BlockingWriter>;
     type Appender = OverlayAppender<O::Appender, B::Appender>;
-    type Pager = OverlayPager<B::Pager, O::Pager>;
+    type Pager = OverlayPager<B::Pager, O::Pager, P>;
     type BlockingPager = OverlayBlockingPager<B::BlockingPager, O::BlockingPager>;
 
     fn inner(&self) -> &Self::Inner {
@@ -74,11 +75,15 @@ impl<B: Accessor, O: Accessor, P: Policy> LayeredAccessor for OverlayAccessor<B,
     }
 
     async fn stat(&self, path: &str, args: OpStat) -> Result<RpStat> {
-        self.policy.stat(self.base, self.overlay, path, args).await
+        self.policy
+            .stat(self.base.clone(), self.overlay.clone(), path, args)
+            .await
     }
 
     async fn read(&self, path: &str, args: OpRead) -> Result<(RpRead, Self::Reader)> {
-        self.policy.read(self.base, self.overlay, path, args).await
+        self.policy
+            .read(self.base.clone(), self.overlay.clone(), path, args)
+            .await
     }
 
     async fn write(&self, path: &str, args: OpWrite) -> Result<(RpWrite, Self::Writer)> {
@@ -90,10 +95,10 @@ impl<B: Accessor, O: Accessor, P: Policy> LayeredAccessor for OverlayAccessor<B,
     }
 
     async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Pager)> {
-        let (rp, base) = self.base.list(path, args.clone()).await?;
-        let (_, overlay) = self.overlay.list(path, args).await?;
+        let (_, b) = self.base.list(path, args.clone()).await?;
+        let (_, o) = self.overlay.list(path, args).await?;
 
-        Ok((rp, OverlayPager::new(base, overlay)))
+        Ok((RpList {}, OverlayPager::new(b, o, self.policy.clone())))
     }
 
     fn blocking_read(&self, path: &str, args: OpRead) -> Result<(RpRead, Self::BlockingReader)> {

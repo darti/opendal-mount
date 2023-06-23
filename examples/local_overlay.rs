@@ -1,8 +1,9 @@
 use anyhow::anyhow;
+
 use log::info;
 use nfsserve::tcp::{NFSTcp, NFSTcpListener};
 use opendal::{services::Fs, Operator};
-use opendal_mount::{OpendalFs, Overlay, Policy, Source};
+use opendal_mount::{overlay::policy::NaivePolicy, OpendalFs, Overlay};
 use tokio::{
     select,
     signal::{
@@ -13,19 +14,6 @@ use tokio::{
 
 const HOSTPORT: u32 = 12000;
 
-#[derive(Debug)]
-struct OverlayPolicy;
-
-impl Policy for OverlayPolicy {
-    fn stat(&self, path: &str) -> Option<Source> {
-        todo!()
-    }
-
-    fn reader(&self, path: &str) -> Option<Source> {
-        todo!()
-    }
-}
-
 fn init_service(base_root: &str, overlay_root: &str) -> opendal::Result<Operator> {
     let mut base_builder = Fs::default();
     base_builder.root(base_root);
@@ -33,7 +21,7 @@ fn init_service(base_root: &str, overlay_root: &str) -> opendal::Result<Operator
     let mut overlay_builder = Fs::default();
     overlay_builder.root(overlay_root);
 
-    let overlay = Overlay::new(overlay_builder, OverlayPolicy)?;
+    let overlay = Overlay::new(overlay_builder, NaivePolicy)?;
 
     Ok(Operator::new(base_builder)?.layer(overlay).finish())
 }
