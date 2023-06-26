@@ -3,7 +3,8 @@ use anyhow::anyhow;
 use log::info;
 use nfsserve::tcp::{NFSTcp, NFSTcpListener};
 use opendal::{services::Fs, Operator};
-use opendal_mount::{overlay::policy::NaivePolicy, OpendalFs, Overlay};
+use opendal_mount::{mount::umount, overlay::policy::NaivePolicy, OpendalFs, Overlay};
+
 use tokio::{
     select,
     signal::{
@@ -50,6 +51,8 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let mut sig_term = signal(SignalKind::terminate())?;
+
+    umount(mount_point);
 
     select! {
         _ = signal::ctrl_c() => {

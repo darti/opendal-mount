@@ -1,4 +1,5 @@
 mod fs;
+pub mod mount;
 pub mod overlay;
 
 pub use fs::OpendalFs;
