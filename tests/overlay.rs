@@ -1,6 +1,6 @@
-use opendal::{services::Fs, Entry, Operator};
+use opendal::{services::Fs, Operator};
 use opendal_mount::{overlay::policy::NaivePolicy, Overlay};
-use pretty_assertions::{assert_eq, assert_ne};
+use pretty_assertions::assert_eq;
 
 use futures::TryStreamExt;
 

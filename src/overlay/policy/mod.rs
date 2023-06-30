@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use opendal::raw::oio::{self, Page};
-use opendal::raw::{oio::Read, OpRead};
+use opendal::raw::OpRead;
 use opendal::raw::{Accessor, OpStat, RpRead, RpStat};
 
 use opendal::Result;

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use futures::FutureExt;
 use opendal::{
     raw::{
         Accessor, Layer, LayeredAccessor, OpAppend, OpList, OpRead, OpStat, OpWrite, RpAppend,
