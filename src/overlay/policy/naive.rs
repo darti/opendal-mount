@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use log::{debug, info};
 use opendal::raw::{
     oio::{self, Page},
     Accessor, OpRead, OpStat, RpRead, RpStat,
@@ -22,6 +23,8 @@ impl Policy for NaivePolicy {
         path: &str,
         args: OpStat,
     ) -> opendal::Result<RpStat> {
+        debug!("NaivePolicy::stat({:?}, {:?})", path, args);
+
         if let Ok(o) = overlay.stat(path, args.clone()).await {
             Ok(o)
         } else {
@@ -51,11 +54,16 @@ impl Policy for NaivePolicy {
         overlay: &mut O,
     ) -> opendal::Result<Option<Vec<oio::Entry>>> {
         let entries = overlay.next().await?;
+        debug!(target : "NEXT", "NaivePolicy::next::overlay({:?})", entries);
 
         if let Some(_) = overlay.next().await? {
+            debug!(target : "NEXT", "NaivePolicy::next::overlay({:?})", entries);
             return Ok(entries);
         } else {
-            return base.next().await;
+            let entries = base.next().await;
+            debug!(target : "NEXT", "NaivePolicy::next::base({:?})", entries);
+
+            entries
         }
     }
 }
