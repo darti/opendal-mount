@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use log::info;
 use nfsserve::tcp::{NFSTcp, NFSTcpListener};
 use opendal::{services::Fs, Operator};
-use opendal_mount::{overlay::policy::NaivePolicy, OpendalFs, Overlay};
+use opendal_mount::{overlay::policy::OsFilesPolicy, OpendalFs, Overlay};
 
 use tokio::{
     select,
@@ -22,7 +22,7 @@ fn init_service(base_root: &str, overlay_root: &str) -> opendal::Result<Operator
     let mut overlay_builder = Fs::default();
     overlay_builder.root(overlay_root);
 
-    let overlay = Overlay::new(overlay_builder, NaivePolicy)?;
+    let overlay = Overlay::new(overlay_builder, OsFilesPolicy)?;
 
     Ok(Operator::new(base_builder)?.layer(overlay).finish())
 }

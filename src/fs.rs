@@ -8,7 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiMap;
-use log::{debug, error, info};
+use log::{debug, error, warn};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
@@ -65,7 +65,7 @@ impl OpendalFs {
             .metadata(&entry, Metakey::Mode)
             .await
             .map_err(|e| {
-                info!("unable to get metadata for {:?}: {}", path, e);
+                warn!("unable to get metadata for {:?}: {}", path, e);
                 nfsstat3::NFS3ERR_NOENT
             })?;
 
@@ -229,7 +229,6 @@ impl NFSFileSystem for OpendalFs {
         let mut capture: bool = start_after == 0;
 
         while let Some(de) = ds.try_next().await.map_err(|_| nfsstat3::NFS3ERR_NOENT)? {
-            info!("readdir: entry {:?} {:?}", de.name(), de);
             let id = self.path_to_inode(de.path(), true).await?;
 
             if capture {

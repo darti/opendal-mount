@@ -4,7 +4,7 @@ use opendal::{
     services::{Fs, Sftp},
     Operator,
 };
-use opendal_mount::OpendalFs;
+use opendal_mount::{overlay::policy::OsFilesPolicy, OpendalFs, Overlay};
 use tokio::{
     select,
     signal::{
@@ -24,6 +24,8 @@ async fn main() -> anyhow::Result<()> {
     let key_file = "~/.ssh/id_remarkable";
     let base = "/home/root/.local/share/remarkable";
 
+    let overlay_root = "./overlay";
+
     let mut remote_builder = Sftp::default();
 
     remote_builder
@@ -32,14 +34,14 @@ async fn main() -> anyhow::Result<()> {
         .key(key_file)
         .root(base);
 
-    let remote = Operator::new(remote_builder)?.finish();
+    let mut overlay_builder = Fs::default();
+    overlay_builder.root(overlay_root);
 
-    let mut local_builder = Fs::default();
-    local_builder.root("./local");
+    let overlay = Overlay::new(overlay_builder, OsFilesPolicy)?;
 
-    let local = Operator::new(local_builder)?.finish();
+    let opperator = Operator::new(remote_builder)?.layer(overlay).finish();
 
-    let fs = OpendalFs::new(remote, false);
+    let fs = OpendalFs::new(opperator, false);
 
     tokio::spawn(async {
         let listener = NFSTcpListener::bind(&format!("127.0.0.1:{HOSTPORT}"), fs)

@@ -1,6 +1,8 @@
 mod naive;
+mod os_files;
 
 pub use naive::NaivePolicy;
+pub use os_files::OsFilesPolicy;
 
 use std::fmt::Debug;
 use std::sync::Arc;
