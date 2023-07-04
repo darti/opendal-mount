@@ -41,9 +41,13 @@ async fn main() -> anyhow::Result<()> {
     let mut overlay_builder = Fs::default();
     overlay_builder.root(overlay_root);
 
-    let overlay = Overlay::new(overlay_builder, OsFilesPolicy)?;
+    let mut builder = Overlay::default();
+    builder
+        .policy(OsFilesPolicy)
+        .base_builder(remote_builder)
+        .overlay_builder(overlay_builder);
 
-    let opperator = Operator::new(remote_builder)?.layer(overlay).finish();
+    let opperator = Operator::new(builder)?.finish();
 
     let fs = OpendalFs::new(opperator, false);
 

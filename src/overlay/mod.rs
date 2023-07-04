@@ -5,4 +5,4 @@ pub mod policy;
 mod reader;
 mod writer;
 
-pub use backend::Overlay;
+pub use backend::OverlayBuilder as Overlay;

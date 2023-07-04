@@ -7,10 +7,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use opendal::raw::oio::{self, Page};
-use opendal::raw::{Accessor, OpCreateDir, OpStat, OpWrite, RpCreateDir, RpRead, RpStat};
+use opendal::raw::{
+    Accessor, AccessorInfo, OpCreateDir, OpStat, OpWrite, RpCreateDir, RpRead, RpStat,
+};
 use opendal::raw::{OpRead, RpWrite};
 
-use opendal::Result;
+use opendal::{Capability, Result};
 
 use super::reader::OverlayReader;
 use super::writer::OverlayWriter;
@@ -55,7 +57,15 @@ impl From<OpCreateDir> for PolicyOperation {
 
 #[async_trait]
 pub trait Policy: Debug + Send + Sync + 'static {
-    fn owner(&self, path: &str, op: PolicyOperation) -> Source;
+    fn owner<B, O>(&self, base_info: B, overlay_info: O, path: &str, op: PolicyOperation) -> Source
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo;
+
+    fn capability<B, O>(&self, base_info: B, overlay_info: O) -> Capability
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo;
 
     async fn stat<B: Accessor, O: Accessor>(
         &self,
@@ -64,7 +74,7 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpStat,
     ) -> Result<RpStat> {
-        match self.owner(path, args.clone().into()) {
+        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base.stat(path, args).await,
             Source::Overlay => overlay.stat(path, args).await,
         }
@@ -77,7 +87,7 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpRead,
     ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)> {
-        match self.owner(path, args.clone().into()) {
+        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base
                 .read(path, args)
                 .await
@@ -96,7 +106,7 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpWrite,
     ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)> {
-        match self.owner(path, args.clone().into()) {
+        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base
                 .write(path, args)
                 .await
@@ -115,7 +125,7 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpCreateDir,
     ) -> Result<RpCreateDir> {
-        match self.owner(path, args.clone().into()) {
+        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base.create_dir(path, args).await,
             Source::Overlay => overlay.create_dir(path, args).await,
         }

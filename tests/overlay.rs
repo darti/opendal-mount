@@ -1,35 +1,84 @@
-// use opendal::{services::Fs, Operator};
-// use opendal_mount::Overlay;
-// use pretty_assertions::assert_eq;
+use async_trait::async_trait;
+use futures::TryStreamExt;
+use opendal::{
+    raw::{
+        oio::{self, Page},
+        AccessorInfo,
+    },
+    services::Fs,
+    Capability, Operator,
+};
+use opendal_mount::{
+    overlay::policy::{Policy, PolicyOperation, Source},
+    Overlay,
+};
+use pretty_assertions::assert_eq;
 
-// use futures::TryStreamExt;
+const BASE_ROOT: &str = "./tests/samples/base";
+const OVERLAY_ROOT: &str = "./tests/samples/overlay";
 
-// const BASE_ROOT: &str = "./tests/samples/base";
-// const OVERLAY_ROOT: &str = "./tests/samples/overlay";
+#[derive(Debug, Clone)]
+struct BaseOnlyPolicy {}
 
-// const ENTRIES: [&str; 2] = ["hello.txt", "world.txt"];
+#[async_trait]
+impl Policy for BaseOnlyPolicy {
+    fn owner<B, O>(
+        &self,
+        _base_info: B,
+        _overlay_info: O,
+        _path: &str,
+        _op: PolicyOperation,
+    ) -> Source
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo,
+    {
+        Source::Base
+    }
 
-use opendal::services::Memory;
+    fn capability<B, O>(&self, base_info: B, _overlay_info: O) -> Capability
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo,
+    {
+        base_info().capability()
+    }
+
+    async fn next<B: Page, O: Page>(
+        &self,
+        base: &mut B,
+        _overlay: &mut O,
+    ) -> opendal::Result<Option<Vec<oio::Entry>>> {
+        base.next().await
+    }
+}
 
 #[tokio::test]
-async fn test_overlay_file_union() -> anyhow::Result<()> {
-    let mut base_builder = Memory::default();
+async fn test_base_only() -> anyhow::Result<()> {
+    let mut base_builder = Fs::default();
+    base_builder.root(BASE_ROOT);
 
-    let mut overlay_builder = Memory::default();
+    let mut overlay_builder = Fs::default();
+    overlay_builder.root(OVERLAY_ROOT);
 
-    //     let overlay = Overlay::new(overlay_builder, NaivePolicy)?;
+    let mut builder = Overlay::default();
 
-    //     let op = Operator::new(base_builder)?.layer(overlay).finish();
+    builder
+        .base_builder(base_builder)
+        .overlay_builder(overlay_builder)
+        .policy(BaseOnlyPolicy {});
 
-    //     let ds = op.list("/").await?;
-    //     let mut entries: Vec<String> = ds
-    //         .into_stream()
-    //         .map_ok(|e| e.name().to_owned())
-    //         .try_collect()
-    //         .await?;
+    let op = Operator::new(builder)?.finish();
 
-    //     entries.sort();
+    let ds = op.list("/").await?;
+    let mut entries: Vec<String> = ds
+        .into_stream()
+        .map_ok(|e| e.name().to_owned())
+        .try_collect()
+        .await?;
 
-    //     assert_eq!(entries, ENTRIES);
+    entries.sort();
+
+    assert_eq!(entries, &["hello.txt"]);
     Ok(())
 }

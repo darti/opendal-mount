@@ -1,8 +1,14 @@
 use std::path::Path;
 
 use async_trait::async_trait;
-use log::debug;
-use opendal::raw::oio::{self, Page};
+
+use opendal::{
+    raw::{
+        oio::{self, Page},
+        AccessorInfo,
+    },
+    Capability,
+};
 
 use super::{Policy, PolicyOperation, Source};
 
@@ -36,12 +42,30 @@ impl OsFilesPolicy {
 
 #[async_trait]
 impl Policy for OsFilesPolicy {
-    fn owner(&self, path: &str, op: PolicyOperation) -> Source {
+    fn owner<B, O>(
+        &self,
+        _base_info: B,
+        _overlay_info: O,
+        path: &str,
+        _op: PolicyOperation,
+    ) -> Source
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo,
+    {
         if OsFilesPolicy::is_special_file(path) {
             Source::Overlay
         } else {
             Source::Base
         }
+    }
+
+    fn capability<B, O>(&self, base_info: B, _overlay_info: O) -> Capability
+    where
+        B: FnOnce() -> AccessorInfo,
+        O: FnOnce() -> AccessorInfo,
+    {
+        base_info().capability()
     }
 
     async fn next<B: Page, O: Page>(
