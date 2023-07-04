@@ -29,6 +29,13 @@ impl<B: oio::Write, O: oio::Write> oio::Write for OverlayWriter<B, O> {
             Self::Overlay(o) => o.close().await,
         }
     }
+
+    async fn sink(&mut self, size: u64, s: oio::Streamer) -> Result<()> {
+        match self {
+            Self::Base(b) => b.sink(size, s).await,
+            Self::Overlay(o) => o.sink(size, s).await,
+        }
+    }
 }
 
 pub enum OverlayBlockingWriter<B: oio::BlockingWrite, O: oio::BlockingWrite> {
