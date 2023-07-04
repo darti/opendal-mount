@@ -1,7 +1,5 @@
-mod naive;
 mod os_files;
 
-pub use naive::NaivePolicy;
 pub use os_files::OsFilesPolicy;
 
 use std::fmt::Debug;
@@ -9,27 +7,68 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use opendal::raw::oio::{self, Page};
-use opendal::raw::OpRead;
-use opendal::raw::{Accessor, OpStat, RpRead, RpStat};
+use opendal::raw::{Accessor, OpCreateDir, OpStat, OpWrite, RpCreateDir, RpRead, RpStat};
+use opendal::raw::{OpRead, RpWrite};
 
 use opendal::Result;
 
 use super::reader::OverlayReader;
+use super::writer::OverlayWriter;
 
 pub enum Source {
     Base,
     Overlay,
 }
 
+#[derive(Debug, Clone)]
+pub enum PolicyOperation {
+    Stat(OpStat),
+    Read(OpRead),
+    Write(OpWrite),
+
+    CreateDir(OpCreateDir),
+}
+
+impl From<OpStat> for PolicyOperation {
+    fn from(op: OpStat) -> Self {
+        PolicyOperation::Stat(op)
+    }
+}
+
+impl From<OpRead> for PolicyOperation {
+    fn from(op: OpRead) -> Self {
+        PolicyOperation::Read(op)
+    }
+}
+
+impl From<OpWrite> for PolicyOperation {
+    fn from(op: OpWrite) -> Self {
+        PolicyOperation::Write(op)
+    }
+}
+
+impl From<OpCreateDir> for PolicyOperation {
+    fn from(op: OpCreateDir) -> Self {
+        PolicyOperation::CreateDir(op)
+    }
+}
+
 #[async_trait]
 pub trait Policy: Debug + Send + Sync + 'static {
+    fn owner(&self, path: &str, op: PolicyOperation) -> Source;
+
     async fn stat<B: Accessor, O: Accessor>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpStat,
-    ) -> Result<RpStat>;
+    ) -> Result<RpStat> {
+        match self.owner(path, args.clone().into()) {
+            Source::Base => base.stat(path, args).await,
+            Source::Overlay => overlay.stat(path, args).await,
+        }
+    }
 
     async fn read<B: Accessor, O: Accessor>(
         &self,
@@ -37,7 +76,50 @@ pub trait Policy: Debug + Send + Sync + 'static {
         overlay: Arc<O>,
         path: &str,
         args: OpRead,
-    ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)>;
+    ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)> {
+        match self.owner(path, args.clone().into()) {
+            Source::Base => base
+                .read(path, args)
+                .await
+                .map(|(rp, r)| (rp, OverlayReader::Base(r))),
+            Source::Overlay => overlay
+                .read(path, args)
+                .await
+                .map(|(rp, r)| (rp, OverlayReader::Overlay(r))),
+        }
+    }
+
+    async fn write<B: Accessor, O: Accessor>(
+        &self,
+        base: Arc<B>,
+        overlay: Arc<O>,
+        path: &str,
+        args: OpWrite,
+    ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)> {
+        match self.owner(path, args.clone().into()) {
+            Source::Base => base
+                .write(path, args)
+                .await
+                .map(|(rp, r)| (rp, OverlayWriter::Base(r))),
+            Source::Overlay => overlay
+                .write(path, args)
+                .await
+                .map(|(rp, r)| (rp, OverlayWriter::Overlay(r))),
+        }
+    }
+
+    async fn create_dir<B: Accessor, O: Accessor>(
+        &self,
+        base: Arc<B>,
+        overlay: Arc<O>,
+        path: &str,
+        args: OpCreateDir,
+    ) -> Result<RpCreateDir> {
+        match self.owner(path, args.clone().into()) {
+            Source::Base => base.create_dir(path, args).await,
+            Source::Overlay => overlay.create_dir(path, args).await,
+        }
+    }
 
     async fn next<B: Page, O: Page>(
         &self,

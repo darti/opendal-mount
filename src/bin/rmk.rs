@@ -17,7 +17,11 @@ const HOSTPORT: u32 = 12000;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "tracing")]
     console_subscriber::init();
+
+    #[cfg(not(feature = "tracing"))]
+    pretty_env_logger::init();
 
     let endpoint = "10.11.99.1";
     let user = "root";

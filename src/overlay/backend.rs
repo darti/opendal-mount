@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 use opendal::{
     raw::{
-        Accessor, Layer, LayeredAccessor, OpAppend, OpList, OpRead, OpStat, OpWrite, RpAppend,
-        RpList, RpRead, RpStat, RpWrite,
+        Accessor, Layer, LayeredAccessor, OpAppend, OpCreateDir, OpList, OpRead, OpStat, OpWrite,
+        RpAppend, RpCreateDir, RpList, RpRead, RpStat, RpWrite,
     },
     Builder, Result,
 };
@@ -73,6 +73,10 @@ impl<B: Accessor, O: Accessor, P: Policy> LayeredAccessor for OverlayAccessor<B,
         &self.base
     }
 
+    async fn create_dir(&self, path: &str, args: OpCreateDir) -> Result<RpCreateDir> {
+        self.inner().create_dir(path, args).await
+    }
+
     async fn stat(&self, path: &str, args: OpStat) -> Result<RpStat> {
         self.policy
             .stat(self.base.clone(), self.overlay.clone(), path, args)
@@ -86,7 +90,9 @@ impl<B: Accessor, O: Accessor, P: Policy> LayeredAccessor for OverlayAccessor<B,
     }
 
     async fn write(&self, path: &str, args: OpWrite) -> Result<(RpWrite, Self::Writer)> {
-        todo!()
+        self.policy
+            .write(self.overlay.clone(), self.base.clone(), path, args)
+            .await
     }
 
     async fn append(&self, path: &str, args: OpAppend) -> Result<(RpAppend, Self::Appender)> {

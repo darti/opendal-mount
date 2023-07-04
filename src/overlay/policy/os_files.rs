@@ -1,23 +1,19 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 use async_trait::async_trait;
 use log::debug;
-use opendal::raw::{
-    oio::{self, Page},
-    Accessor, OpRead, OpStat, RpRead, RpStat,
-};
+use opendal::raw::oio::{self, Page};
 
-use crate::overlay::reader::OverlayReader;
+use super::{Policy, PolicyOperation, Source};
 
-use super::Policy;
-
-const SPECIAL_FILES: [&str; 10] = [
+const SPECIAL_FILES: [&str; 11] = [
     ".DS_Store",
     ".Spotlight-V100",
     ".VolumeIcon.icns",
     ".Trash",
     ".Trashes",
     ".fseventsd",
+    ".hidden",
     "DCIM",
     ".metadata_never_index_unless_rootfs",
     ".metadata_never_index",
@@ -40,38 +36,11 @@ impl OsFilesPolicy {
 
 #[async_trait]
 impl Policy for OsFilesPolicy {
-    async fn stat<B: Accessor, O: Accessor>(
-        &self,
-        base: Arc<B>,
-        overlay: Arc<O>,
-        path: &str,
-        args: OpStat,
-    ) -> opendal::Result<RpStat> {
-        debug!("NaivePolicy::stat({:?}, {:?})", path, args);
-
+    fn owner(&self, path: &str, op: PolicyOperation) -> Source {
         if OsFilesPolicy::is_special_file(path) {
-            overlay.stat(path, args.clone()).await
+            Source::Overlay
         } else {
-            base.stat(path, args).await
-        }
-    }
-
-    async fn read<B: Accessor, O: Accessor>(
-        &self,
-        base: Arc<B>,
-        overlay: Arc<O>,
-        path: &str,
-        args: OpRead,
-    ) -> opendal::Result<(RpRead, OverlayReader<B::Reader, O::Reader>)> {
-        if OsFilesPolicy::is_special_file(path) {
-            overlay
-                .read(path, args.clone())
-                .await
-                .map(|(rp, r)| (rp, OverlayReader::Overlay(r)))
-        } else {
-            base.read(path, args)
-                .await
-                .map(|(rp, r)| (rp, OverlayReader::Base(r)))
+            Source::Base
         }
     }
 
@@ -81,14 +50,11 @@ impl Policy for OsFilesPolicy {
         overlay: &mut O,
     ) -> opendal::Result<Option<Vec<oio::Entry>>> {
         let entries = overlay.next().await?;
-        debug!(target : "NEXT", "NaivePolicy::next::overlay({:?})", entries);
 
         if let Some(_) = entries {
-            debug!(target : "NEXT", "NaivePolicy::next::overlay({:?})", entries);
             return Ok(entries);
         } else {
             let entries = base.next().await;
-            debug!(target : "NEXT", "NaivePolicy::next::base({:?})", entries);
 
             entries
         }
