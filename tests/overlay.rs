@@ -1,76 +1,23 @@
-use async_trait::async_trait;
+mod common;
+mod policies;
+
 use futures::TryStreamExt;
-use opendal::{
-    raw::{
-        oio::{self, Page},
-        AccessorInfo,
-    },
-    services::Fs,
-    Capability, Operator,
-};
-use opendal_mount::{
-    overlay::policy::{Policy, PolicyOperation, Source},
-    Overlay,
-};
+
 use pretty_assertions::assert_eq;
 
-const BASE_ROOT: &str = "./tests/samples/base";
-const OVERLAY_ROOT: &str = "./tests/samples/overlay";
-
-#[derive(Debug, Clone)]
-struct BaseOnlyPolicy {}
-
-#[async_trait]
-impl Policy for BaseOnlyPolicy {
-    fn owner<B, O>(
-        &self,
-        _base_info: B,
-        _overlay_info: O,
-        _path: &str,
-        _op: PolicyOperation,
-    ) -> Source
-    where
-        B: FnOnce() -> AccessorInfo,
-        O: FnOnce() -> AccessorInfo,
-    {
-        Source::Base
-    }
-
-    fn capability<B, O>(&self, base_info: B, _overlay_info: O) -> Capability
-    where
-        B: FnOnce() -> AccessorInfo,
-        O: FnOnce() -> AccessorInfo,
-    {
-        base_info().capability()
-    }
-
-    async fn next<B: Page, O: Page>(
-        &self,
-        base: &mut B,
-        _overlay: &mut O,
-    ) -> opendal::Result<Option<Vec<oio::Entry>>> {
-        base.next().await
-    }
-}
+use crate::{
+    common::TestFixture,
+    policies::{BaseOnlyPolicy, UnionPolicy},
+};
 
 #[tokio::test]
 async fn test_base_only() -> anyhow::Result<()> {
-    let mut base_builder = Fs::default();
-    base_builder.root(BASE_ROOT);
+    let fixture = TestFixture::new(BaseOnlyPolicy {})?;
 
-    let mut overlay_builder = Fs::default();
-    overlay_builder.root(OVERLAY_ROOT);
+    fixture.base.write("/hello.txt", "hello").await?;
+    fixture.overlay.write("/world.txt", "world").await?;
 
-    let mut builder = Overlay::default();
-
-    builder
-        .base_builder(base_builder)
-        .overlay_builder(overlay_builder)
-        .policy(BaseOnlyPolicy {});
-
-    let op = Operator::new(builder)?.finish();
-
-    let ds = op.list("/").await?;
+    let ds = fixture.composite.list("/").await?;
     let mut entries: Vec<String> = ds
         .into_stream()
         .map_ok(|e| e.name().to_owned())
@@ -83,67 +30,14 @@ async fn test_base_only() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
-struct UnionPolicy {}
-
-#[async_trait]
-impl Policy for UnionPolicy {
-    fn owner<B, O>(
-        &self,
-        _base_info: B,
-        _overlay_info: O,
-        _path: &str,
-        _op: PolicyOperation,
-    ) -> Source
-    where
-        B: FnOnce() -> AccessorInfo,
-        O: FnOnce() -> AccessorInfo,
-    {
-        Source::Base
-    }
-
-    fn capability<B, O>(&self, base_info: B, _overlay_info: O) -> Capability
-    where
-        B: FnOnce() -> AccessorInfo,
-        O: FnOnce() -> AccessorInfo,
-    {
-        base_info().capability()
-    }
-
-    async fn next<B: Page, O: Page>(
-        &self,
-        base: &mut B,
-        overlay: &mut O,
-    ) -> opendal::Result<Option<Vec<oio::Entry>>> {
-        let entries = overlay.next().await?;
-        if let Some(_) = entries {
-            return Ok(entries);
-        } else {
-            let entries = base.next().await;
-
-            entries
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_union() -> anyhow::Result<()> {
-    let mut base_builder = Fs::default();
-    base_builder.root(BASE_ROOT);
+    let fixture = TestFixture::new(UnionPolicy {})?;
 
-    let mut overlay_builder = Fs::default();
-    overlay_builder.root(OVERLAY_ROOT);
+    fixture.base.write("/hello.txt", "hello").await?;
+    fixture.overlay.write("/world.txt", "world").await?;
 
-    let mut builder = Overlay::default();
-
-    builder
-        .base_builder(base_builder)
-        .overlay_builder(overlay_builder)
-        .policy(UnionPolicy {});
-
-    let op = Operator::new(builder)?.finish();
-
-    let ds = op.list("/").await?;
+    let ds = fixture.composite.list("/").await?;
     let mut entries: Vec<String> = ds
         .into_stream()
         .map_ok(|e| e.name().to_owned())
