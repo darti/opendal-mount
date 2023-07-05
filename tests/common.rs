@@ -1,12 +1,8 @@
+use async_trait::async_trait;
 use ctor::ctor;
-use opendal::{
-    services::{Fs, Memory},
-    Operator,
-};
-use opendal_mount::{
-    overlay::{self, policy::Policy},
-    Overlay,
-};
+use futures::TryStreamExt;
+use opendal::{services::Fs, Operator};
+use opendal_mount::{overlay::policy::Policy, Overlay};
 use tempfile::TempDir;
 
 #[ctor]
@@ -16,6 +12,27 @@ fn init() {
 
     #[cfg(not(feature = "tracing"))]
     pretty_env_logger::init();
+}
+
+#[async_trait]
+pub trait ListDir {
+    async fn entries(&self, path: &str) -> anyhow::Result<Vec<String>>;
+}
+
+#[async_trait]
+impl ListDir for Operator {
+    async fn entries(&self, path: &str) -> anyhow::Result<Vec<String>> {
+        let ds = self.list(path).await?;
+        let mut entries: Vec<String> = ds
+            .into_stream()
+            .map_ok(|e| e.name().to_owned())
+            .try_collect()
+            .await?;
+
+        entries.sort();
+
+        Ok(entries)
+    }
 }
 
 pub struct TestFixture {
