@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
+use log::debug;
 use opendal::{raw::oio, Result};
 
 pub enum OverlayWriter<B: oio::Write, O: oio::Write> {
@@ -10,6 +11,7 @@ pub enum OverlayWriter<B: oio::Write, O: oio::Write> {
 #[async_trait]
 impl<B: oio::Write, O: oio::Write> oio::Write for OverlayWriter<B, O> {
     async fn write(&mut self, bs: Bytes) -> Result<()> {
+        debug!("OverlayWriter::write({:?})", bs.len());
         match self {
             Self::Base(b) => b.write(bs).await,
             Self::Overlay(o) => o.write(bs).await,

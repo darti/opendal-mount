@@ -2,6 +2,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 
+use log::debug;
 use opendal::{
     raw::{
         oio::{self, Page},
@@ -47,15 +48,17 @@ impl Policy for OsFilesPolicy {
         _base_info: B,
         _overlay_info: O,
         path: &str,
-        _op: PolicyOperation,
+        op: PolicyOperation,
     ) -> Source
     where
         B: FnOnce() -> AccessorInfo,
         O: FnOnce() -> AccessorInfo,
     {
         if OsFilesPolicy::is_special_file(path) {
+            debug!("OsFilesPolicy::Overlay({:?}, {:?})", path, op);
             Source::Overlay
         } else {
+            debug!("OsFilesPolicy::Base({:?}, {:?})", path, op);
             Source::Base
         }
     }

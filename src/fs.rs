@@ -19,18 +19,16 @@ use tokio::sync::RwLock;
 pub struct OpendalFs {
     operator: Operator,
     inodes: Arc<RwLock<BiMap<u64, String>>>,
-    read_only: bool,
 }
 
 impl OpendalFs {
-    pub fn new(operator: Operator, read_only: bool) -> Self {
+    pub fn new(operator: Operator) -> Self {
         let mut inodes = BiMap::new();
         inodes.insert(1, "/".to_string());
 
         OpendalFs {
             operator,
             inodes: Arc::new(RwLock::new(inodes)),
-            read_only,
         }
     }
 
@@ -114,10 +112,11 @@ impl NFSFileSystem for OpendalFs {
 
     fn capabilities(&self) -> VFSCapabilities {
         debug!("capabilities");
-        if self.read_only {
-            VFSCapabilities::ReadOnly
-        } else {
+
+        if self.operator.info().can_write() {
             VFSCapabilities::ReadWrite
+        } else {
+            VFSCapabilities::ReadOnly
         }
     }
 
@@ -179,11 +178,27 @@ impl NFSFileSystem for OpendalFs {
 
     async fn create_exclusive(
         &self,
-        _dirid: fileid3,
-        _filename: &filename3,
+        dirid: fileid3,
+        filename: &filename3,
     ) -> Result<fileid3, nfsstat3> {
-        debug!("create_exclusive");
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+        debug!("create_exclusive {:?} {:?}", dirid, filename);
+
+        let filename = std::str::from_utf8(&filename.0);
+        let path = self.inode_to_path(dirid).await;
+
+        if let (Ok(filename), Some(path)) = (filename, path) {
+            let path = Path::new(&path).join(filename);
+            let ino = self
+                .path_to_inode(&path.display().to_string(), true)
+                .await?;
+
+            self.write(ino, 0, &[0]).await?;
+
+            Ok(ino)
+        } else {
+            warn!("unable to create file {:?} {:?}", dirid, filename);
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
     }
 
     async fn lookup(&self, dirid: fileid3, filename: &filename3) -> Result<fileid3, nfsstat3> {
@@ -214,7 +229,14 @@ impl NFSFileSystem for OpendalFs {
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
         debug!("setattr {:?} {:?}", id, setattr);
 
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+        let path = self
+            .inode_to_path(id)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        let attrs = self.path_to_attr(id, &path).await?;
+
+        Ok(attrs)
     }
 
     async fn read(

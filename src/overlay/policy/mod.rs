@@ -1,5 +1,6 @@
 mod os_files;
 
+use log::debug;
 pub use os_files::OsFilesPolicy;
 
 use std::fmt::Debug;
@@ -106,6 +107,7 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpWrite,
     ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)> {
+        debug!("write: path: {}, args: {:?}", path, args);
         match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base
                 .write(path, args)
