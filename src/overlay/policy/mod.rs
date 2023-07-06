@@ -18,6 +18,7 @@ use opendal::{Capability, Result};
 use super::reader::OverlayReader;
 use super::writer::OverlayWriter;
 
+#[derive(Debug, Clone)]
 pub enum Source {
     Base,
     Overlay,
@@ -107,8 +108,11 @@ pub trait Policy: Debug + Send + Sync + 'static {
         path: &str,
         args: OpWrite,
     ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)> {
-        debug!("write: path: {}, args: {:?}", path, args);
-        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
+        let owner = self.owner(|| base.info(), || overlay.info(), path, args.clone().into());
+
+        debug!("write to {:?}: path: {}, args: {:?}", owner, path, args);
+
+        match owner {
             Source::Base => base
                 .write(path, args)
                 .await

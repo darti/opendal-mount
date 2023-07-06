@@ -1,6 +1,8 @@
 mod common;
 mod policies;
 
+use std::str::from_utf8;
+
 use pretty_assertions::assert_eq;
 
 use crate::{
@@ -9,7 +11,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn read_base_only() -> anyhow::Result<()> {
+async fn list_base_only() -> anyhow::Result<()> {
     let fixture = TestFixture::new(BaseOnlyPolicy {})?;
 
     fixture.base.write("/hello.txt", "hello").await?;
@@ -20,7 +22,7 @@ async fn read_base_only() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn read_union() -> anyhow::Result<()> {
+async fn list_union() -> anyhow::Result<()> {
     let fixture = TestFixture::new(UnionPolicy {})?;
 
     fixture.base.write("/hello.txt", "hello").await?;
@@ -31,6 +33,22 @@ async fn read_union() -> anyhow::Result<()> {
         &["hello.txt", "world.txt"]
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn read_base_only() -> anyhow::Result<()> {
+    let fixture = TestFixture::new(BaseOnlyPolicy {})?;
+
+    let ref_content = "hello";
+
+    fixture.base.write("/hello.txt", ref_content).await?;
+    fixture.overlay.write("/world.txt", "world").await?;
+
+    let content = fixture.composite.read("/hello.txt").await?;
+    let content = from_utf8(&content)?;
+
+    assert_eq!(content, ref_content);
     Ok(())
 }
 
