@@ -107,9 +107,9 @@ pub struct OverlayBackend<B: Accessor, O: Accessor, P: Policy> {
 impl<B: Accessor, O: Accessor, P: Policy> Accessor for OverlayBackend<B, O, P> {
     type Reader = OverlayReader<B::Reader, O::Reader>;
     type BlockingReader = OverlayBlockingReader<B::BlockingReader, O::BlockingReader>;
-    type Writer = OverlayWriter<O::Writer, B::Writer>;
+    type Writer = OverlayWriter<B::Writer, O::Writer>;
     type BlockingWriter = OverlayBlockingWriter<O::BlockingWriter, B::BlockingWriter>;
-    type Appender = OverlayAppender<O::Appender, B::Appender>;
+    type Appender = OverlayAppender<B::Appender, O::Appender>;
     type Pager = OverlayPager<B::Pager, O::Pager, P>;
     type BlockingPager = OverlayBlockingPager<B::BlockingPager, O::BlockingPager>;
 
@@ -163,7 +163,7 @@ impl<B: Accessor, O: Accessor, P: Policy> Accessor for OverlayBackend<B, O, P> {
 
     async fn write(&self, path: &str, args: OpWrite) -> Result<(RpWrite, Self::Writer)> {
         self.policy
-            .write(self.overlay.clone(), self.base.clone(), path, args)
+            .write(self.base.clone(), self.overlay.clone(), path, args)
             .await
     }
 

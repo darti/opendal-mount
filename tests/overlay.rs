@@ -57,7 +57,6 @@ async fn write_base() -> anyhow::Result<()> {
     let fixture = TestFixture::new(BaseOnlyPolicy {})?;
 
     fixture.composite.write("/hello.txt", "hello").await?;
-
     assert_eq!(fixture.composite.entries("/").await?, &["hello.txt"]);
 
     Ok(())

@@ -24,6 +24,7 @@ impl<B: oio::Write, O: oio::Write> oio::Write for OverlayWriter<B, O> {
     }
 
     async fn abort(&mut self) -> Result<()> {
+        debug!("abort");
         match self {
             Self::Base(b) => b.abort().await,
             Self::Overlay(o) => o.abort().await,
@@ -32,8 +33,14 @@ impl<B: oio::Write, O: oio::Write> oio::Write for OverlayWriter<B, O> {
 
     async fn close(&mut self) -> Result<()> {
         match self {
-            Self::Base(b) => b.close().await,
-            Self::Overlay(o) => o.close().await,
+            Self::Base(b) => {
+                debug!("close base");
+                b.close().await
+            }
+            Self::Overlay(o) => {
+                debug!("close overlay");
+                o.close().await
+            }
         }
     }
 
