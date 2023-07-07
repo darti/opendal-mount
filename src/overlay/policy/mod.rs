@@ -9,12 +9,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use opendal::raw::oio::{self, Page};
 use opendal::raw::{
-    Accessor, AccessorInfo, OpCreateDir, OpStat, OpWrite, RpCreateDir, RpRead, RpStat,
+    Accessor, AccessorInfo, OpAppend, OpCreateDir, OpStat, OpWrite, RpAppend, RpCreateDir, RpRead,
+    RpStat,
 };
 use opendal::raw::{OpRead, RpWrite};
 
 use opendal::{Capability, Result};
 
+use super::appender::OverlayAppender;
 use super::reader::OverlayReader;
 use super::writer::OverlayWriter;
 
@@ -31,6 +33,8 @@ pub enum PolicyOperation {
     Write(OpWrite),
 
     CreateDir(OpCreateDir),
+
+    Append(OpAppend),
 }
 
 impl From<OpStat> for PolicyOperation {
@@ -57,6 +61,12 @@ impl From<OpCreateDir> for PolicyOperation {
     }
 }
 
+impl From<OpAppend> for PolicyOperation {
+    fn from(op: OpAppend) -> Self {
+        PolicyOperation::Append(op)
+    }
+}
+
 #[async_trait]
 pub trait Policy: Debug + Send + Sync + 'static {
     fn owner<B, O>(&self, base_info: B, overlay_info: O, path: &str, op: PolicyOperation) -> Source
@@ -69,26 +79,34 @@ pub trait Policy: Debug + Send + Sync + 'static {
         B: FnOnce() -> AccessorInfo,
         O: FnOnce() -> AccessorInfo;
 
-    async fn stat<B: Accessor, O: Accessor>(
+    async fn stat<B, O>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpStat,
-    ) -> Result<RpStat> {
+    ) -> Result<RpStat>
+    where
+        B: Accessor,
+        O: Accessor,
+    {
         match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base.stat(path, args).await,
             Source::Overlay => overlay.stat(path, args).await,
         }
     }
 
-    async fn read<B: Accessor, O: Accessor>(
+    async fn read<B, O>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpRead,
-    ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)> {
+    ) -> Result<(RpRead, OverlayReader<B::Reader, O::Reader>)>
+    where
+        B: Accessor,
+        O: Accessor,
+    {
         match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base
                 .read(path, args)
@@ -101,13 +119,17 @@ pub trait Policy: Debug + Send + Sync + 'static {
         }
     }
 
-    async fn write<B: Accessor, O: Accessor>(
+    async fn write<B, O>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpWrite,
-    ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)> {
+    ) -> Result<(RpWrite, OverlayWriter<B::Writer, O::Writer>)>
+    where
+        B: Accessor,
+        O: Accessor,
+    {
         let owner = self.owner(|| base.info(), || overlay.info(), path, args.clone().into());
 
         debug!("write to {:?}: path: {}, args: {:?}", owner, path, args);
@@ -124,22 +146,48 @@ pub trait Policy: Debug + Send + Sync + 'static {
         }
     }
 
-    async fn create_dir<B: Accessor, O: Accessor>(
+    async fn create_dir<B, O>(
         &self,
         base: Arc<B>,
         overlay: Arc<O>,
         path: &str,
         args: OpCreateDir,
-    ) -> Result<RpCreateDir> {
+    ) -> Result<RpCreateDir>
+    where
+        B: Accessor,
+        O: Accessor,
+    {
         match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
             Source::Base => base.create_dir(path, args).await,
             Source::Overlay => overlay.create_dir(path, args).await,
         }
     }
 
-    async fn next<B: Page, O: Page>(
+    async fn append<B, O>(
         &self,
-        base: &mut B,
-        overlay: &mut O,
-    ) -> Result<Option<Vec<oio::Entry>>>;
+        base: Arc<B>,
+        overlay: Arc<O>,
+        path: &str,
+        args: OpAppend,
+    ) -> Result<(RpAppend, OverlayAppender<B::Appender, O::Appender>)>
+    where
+        B: Accessor,
+        O: Accessor,
+    {
+        match self.owner(|| base.info(), || overlay.info(), path, args.clone().into()) {
+            Source::Base => base
+                .append(path, args)
+                .await
+                .map(|(rp, b)| (rp, OverlayAppender::Base(b))),
+            Source::Overlay => overlay
+                .append(path, args)
+                .await
+                .map(|(rp, o)| (rp, OverlayAppender::Overlay(o))),
+        }
+    }
+
+    async fn next<B, O>(&self, base: &mut B, overlay: &mut O) -> Result<Option<Vec<oio::Entry>>>
+    where
+        B: Page,
+        O: Page;
 }

@@ -168,7 +168,9 @@ impl<B: Accessor, O: Accessor, P: Policy> Accessor for OverlayBackend<B, O, P> {
     }
 
     async fn append(&self, path: &str, args: OpAppend) -> Result<(RpAppend, Self::Appender)> {
-        todo!()
+        self.policy
+            .append(self.base.clone(), self.overlay.clone(), path, args)
+            .await
     }
 
     async fn list(&self, path: &str, args: OpList) -> Result<(RpList, Self::Pager)> {
