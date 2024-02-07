@@ -6,39 +6,39 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = "1.0.40"
-anyhow = "1.0.71"
+thiserror = "1.0.56"
+anyhow = "1.0.79"
 
-log = "0.4.18"
+log = "0.4.20"
 pretty_env_logger = "0.5.0"
 
 
-opendal = { version = "0.38.0", features = ["services-sftp"] }
-nfsserve = "0.10.1"
+opendal = { version = "0.44.2", features = ["services-sftp"] }
+nfsserve = { git = "https://github.com/xetdata/nfsserve", branch = "main" }
 
 bimap = "0.6.3"
 
 futures = "0.3"
 async-trait = "0.1"
-tokio = { version = "1", features = [
-    "rt",
-    "rt-multi-thread",
-    "macros",
-    "signal",
-    "fs",
-    "time",
-    "sync",
-] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "signal", "fs", "time", "sync", "net"] }
 
-tokio-console = { version = "0.1.8", optional = true }
-console-subscriber = { version = "0.1.9", optional = true }
-bytes = "1.4.0"
+tokio-console = { version = "0.1.10", optional = true }
+console-subscriber = { version = "0.2.0", optional = true }
+bytes = "1.5.0"
+clap = { version = "4.4.18", features = [
+    "derive",
+    "color",
+    "usage",
+    "help",
+    "suggestions",
+] }
 
 
 [dev-dependencies]
-ctor = "0.2.2"
-pretty_assertions = "1.3.0"
-tempfile = "3.6.0"
+ctor = "0.2.6"
+pretty_assertions = "1.4.0"
+tempfile = "3.9.0"
 
 [features]
+default = ["tracing"]
 tracing = ["dep:tokio-console", "dep:console-subscriber", "tokio/tracing"]

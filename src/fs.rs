@@ -1,4 +1,3 @@
-use futures::TryStreamExt;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -13,7 +12,7 @@ use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
 };
-use opendal::{Entry, Metakey, Operator};
+use opendal::Operator;
 use tokio::sync::RwLock;
 
 pub struct OpendalFs {
@@ -56,16 +55,10 @@ impl OpendalFs {
     }
 
     async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
-        let entry = Entry::new(path);
-
-        let meta = self
-            .operator
-            .metadata(&entry, Metakey::Mode)
-            .await
-            .map_err(|e| {
-                warn!("unable to get metadata for {:?}: {}", path, e);
-                nfsstat3::NFS3ERR_NOENT
-            })?;
+        let meta = self.operator.stat(&path).await.map_err(|e| {
+            warn!("unable to get metadata for {:?}: {}", path, e);
+            nfsstat3::NFS3ERR_NOENT
+        })?;
 
         let kind = if meta.is_dir() {
             ftype3::NF3DIR
@@ -113,7 +106,7 @@ impl NFSFileSystem for OpendalFs {
     fn capabilities(&self) -> VFSCapabilities {
         debug!("capabilities");
 
-        if self.operator.info().can_write() {
+        if self.operator.info().full_capability().write {
             VFSCapabilities::ReadWrite
         } else {
             VFSCapabilities::ReadOnly
@@ -136,7 +129,8 @@ impl NFSFileSystem for OpendalFs {
                     })
             } else {
                 self.operator
-                    .append(&path, data.to_vec())
+                    .write_with(&path, data.to_vec())
+                    .append(true)
                     .await
                     .map_err(|_| {
                         warn!("unable to append to {:?}", path);
@@ -254,7 +248,8 @@ impl NFSFileSystem for OpendalFs {
 
         let data = self
             .operator
-            .range_read(&path, offset..offset + count as u64)
+            .read_with(&path)
+            .range(offset..offset + count as u64)
             .await;
 
         match data {
@@ -282,7 +277,7 @@ impl NFSFileSystem for OpendalFs {
             .await
             .ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        let mut ds = self
+        let ds = self
             .operator
             .list(&path)
             .await
@@ -292,7 +287,7 @@ impl NFSFileSystem for OpendalFs {
 
         let mut capture: bool = start_after == 0;
 
-        while let Some(de) = ds.try_next().await.map_err(|_| nfsstat3::NFS3ERR_NOENT)? {
+        for de in ds {
             let id = self.path_to_inode(de.path(), true).await?;
 
             if capture {
