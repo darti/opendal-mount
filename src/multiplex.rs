@@ -11,15 +11,25 @@ use tokio::sync::RwLock;
 
 use crate::{
     errors::{OpendalMountError, OpendalMountResult},
+    mount::{FsMounter, Mounter},
     schema::MountedFs,
 };
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct MultiplexedFs {
+    ip: String,
+    port: u16,
     ops: Arc<RwLock<HashMap<String, Operator>>>,
 }
 
 impl MultiplexedFs {
+    pub fn new(ip: &str, port: u16) -> Self {
+        Self {
+            ip: ip.to_owned(),
+            port,
+            ops: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
     pub async fn mount_operator(&self, mount_point: &str, op: Operator) -> OpendalMountResult<()> {
         let mut ops = self.ops.write().await;
 
@@ -28,6 +38,8 @@ impl MultiplexedFs {
         }
 
         ops.insert(mount_point.to_owned(), op);
+
+        FsMounter::mount(&self.ip, self.port, mount_point, true).await?;
 
         Ok(())
     }

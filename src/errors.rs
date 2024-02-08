@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum OpendalMountError {
     #[error("Fail to mount fs")]
     MountError(),
@@ -16,6 +16,9 @@ pub enum OpendalMountError {
 
     #[error("operator creation failure {0}")]
     OperatorCreateError(String),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 }
 
 pub type OpendalMountResult<T> = Result<T, OpendalMountError>;

@@ -2,13 +2,9 @@ use std::{collections::HashMap, str::FromStr};
 
 use async_graphql::*;
 use log::{debug, error};
-use opendal::{Operator, OperatorInfo, Scheme};
-use uuid::Uuid;
+use opendal::{Operator, Scheme};
 
-use crate::{
-    errors::{OpendalMountError, OpendalMountResult},
-    MultiplexedFs,
-};
+use crate::{errors::OpendalMountError, MultiplexedFs};
 
 #[derive(SimpleObject)]
 pub struct MountedFs {
@@ -22,7 +18,7 @@ pub struct Query;
 
 #[Object]
 impl Query {
-    async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> OpendalMountResult<Vec<MountedFs>> {
+    async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> async_graphql::Result<Vec<MountedFs>> {
         let mfs = ctx
             .data::<MultiplexedFs>()
             .map_err(|_| OpendalMountError::MultiplexedNotFound())?;
@@ -41,7 +37,7 @@ impl Mutation {
         service: String,
         parameters: HashMap<String, String>,
         mount_point: String,
-    ) -> OpendalMountResult<String> {
+    ) -> async_graphql::Result<String> {
         debug!("mounting {} at {}", service, mount_point);
 
         let mfs = ctx.data::<MultiplexedFs>().map_err(|e| {

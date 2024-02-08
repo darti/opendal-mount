@@ -9,7 +9,7 @@ impl Mounter for MacosMounter {
     }
 
     fn mount_command(
-        ip: String,
+        ip: &str,
         hostport: u16,
         prefix: &str,
         mount_path: &str,

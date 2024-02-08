@@ -16,7 +16,7 @@ use tokio::process::Command;
 pub trait Mounter {
     fn check() -> bool;
     fn mount_command(
-        ip: String,
+        ip: &str,
         hostport: u16,
         prefix: &str,
         mount_path: &str,
@@ -24,7 +24,7 @@ pub trait Mounter {
     ) -> Command;
 
     async fn mount(
-        ip: String,
+        ip: &str,
         hostport: u16,
         mount_path: &str,
         writable: bool,
