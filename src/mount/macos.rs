@@ -8,7 +8,13 @@ impl Mounter for MacosMounter {
         true
     }
 
-    fn mount_command(ip: String, hostport: u16, mount_path: &str, writable: bool) -> Command {
+    fn mount_command(
+        ip: String,
+        hostport: u16,
+        prefix: &str,
+        mount_path: &str,
+        writable: bool,
+    ) -> Command {
         let mut ret = Command::new("/sbin/mount");
         ret.arg("-t").arg("nfs");
         if writable {
@@ -21,7 +27,7 @@ impl Mounter for MacosMounter {
             ));
         }
 
-        ret.arg(format!("{}:/", &ip)).arg(mount_path);
+        ret.arg(format!("{}:{}", &ip, prefix)).arg(mount_path);
         ret
     }
 }

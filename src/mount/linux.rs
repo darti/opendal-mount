@@ -1,6 +1,7 @@
 fn build_mount_command(
     ip: String,
     hostport: u16,
+    prefix: &str,
     mount_path: String,
     writable: bool,
     sudo: bool,

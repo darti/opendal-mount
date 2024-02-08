@@ -15,7 +15,13 @@ use tokio::process::Command;
 
 pub trait Mounter {
     fn check() -> bool;
-    fn mount_command(ip: String, hostport: u16, mount_path: &str, writable: bool) -> Command;
+    fn mount_command(
+        ip: String,
+        hostport: u16,
+        prefix: &str,
+        mount_path: &str,
+        writable: bool,
+    ) -> Command;
 
     async fn mount(
         ip: String,
@@ -23,7 +29,7 @@ pub trait Mounter {
         mount_path: &str,
         writable: bool,
     ) -> Result<(), std::io::Error> {
-        let mut cmd = Self::mount_command(ip, hostport, mount_path, writable);
+        let mut cmd = Self::mount_command(ip, hostport, "/", mount_path, writable);
         let status = cmd.status().await?;
         if !status.success() {
             error!("Failed to mount: {:?}", status);
