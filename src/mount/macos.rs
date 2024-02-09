@@ -27,7 +27,7 @@ impl Mounter for MacosMounter {
             ));
         }
 
-        ret.arg(format!("{}:{}", &ip, prefix)).arg(mount_path);
+        ret.arg(format!("{}:/{}", &ip, prefix)).arg(mount_path);
         ret
     }
 }

@@ -10,7 +10,7 @@ mod windows;
 #[cfg(target_os = "linux")]
 mod linux;
 
-use log::error;
+use log::{debug, error};
 use tokio::process::Command;
 
 pub trait Mounter {
@@ -29,7 +29,10 @@ pub trait Mounter {
         mount_path: &str,
         writable: bool,
     ) -> Result<(), std::io::Error> {
-        let mut cmd = Self::mount_command(ip, hostport, "/", mount_path, writable);
+        let mut cmd = Self::mount_command(ip, hostport, "", mount_path, writable);
+
+        debug!("Mounting with: {:?}", cmd);
+
         let status = cmd.status().await?;
         if !status.success() {
             error!("Failed to mount: {:?}", status);
