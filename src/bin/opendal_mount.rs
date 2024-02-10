@@ -53,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
 
     let fs = MultiplexedFs::new(&args.host, args.port);
     let fs_nfs = fs.clone();
+    let fs_umount = fs.clone();
 
     info!("Starting FS");
     tokio::spawn(async move {
@@ -94,6 +95,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    fs_umount.umount_all().await?;
 
     Ok(())
 }

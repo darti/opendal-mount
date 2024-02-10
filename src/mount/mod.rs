@@ -23,19 +23,38 @@ pub trait Mounter {
         writable: bool,
     ) -> Command;
 
+    fn umount_command(mount_path: &str) -> Command;
+
     async fn mount(
         ip: &str,
         hostport: u16,
+        prefix: &str,
         mount_path: &str,
         writable: bool,
     ) -> Result<(), std::io::Error> {
-        let mut cmd = Self::mount_command(ip, hostport, "", mount_path, writable);
+        let mut cmd = Self::mount_command(ip, hostport, prefix, mount_path, writable);
 
         debug!("Mounting with: {:?}", cmd);
 
         let status = cmd.status().await?;
         if !status.success() {
             error!("Failed to mount: {:?}", status);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to mount",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn umount(mount_path: &str) -> Result<(), std::io::Error> {
+        let mut cmd = Self::umount_command(mount_path);
+
+        debug!("Mounting with: {:?}", cmd);
+
+        let status = cmd.status().await?;
+        if !status.success() {
+            error!("Failed to umount: {:?}", status);
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Failed to mount",

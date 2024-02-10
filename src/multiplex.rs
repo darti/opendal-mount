@@ -1,17 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use log::{debug, info};
+use log::{debug, error, info};
 use nfsserve::{
-    nfs::{fattr3, fileid3, filename3, nfspath3, nfsstat3, sattr3},
+    nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{NFSFileSystem, ReadDirResult, VFSCapabilities},
 };
 
 use opendal::Operator;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 
 use crate::{
-    errors::{OpendalMountError, OpendalMountResult},
+    errors::OpendalMountResult,
     mount::{FsMounter, Mounter},
     schema::MountedFs,
 };
@@ -34,20 +35,35 @@ impl MultiplexedFs {
     pub async fn mount_operator(&self, mount_point: &str, op: Operator) -> OpendalMountResult<()> {
         let mut ops = self.ops.write().await;
 
-        if ops.contains_key(mount_point) {
-            return Err(OpendalMountError::AlreadyMounted(mount_point.to_owned()));
-        }
+        let prefix = Uuid::new_v4().to_string();
 
         info!("Mounting{} at {}", op.info().name(), mount_point);
         ops.insert(mount_point.to_owned(), op);
 
-        FsMounter::mount(&self.ip, self.port, mount_point, true).await?;
+        FsMounter::mount(&self.ip, self.port, &prefix, mount_point, true).await?;
 
         Ok(())
     }
 
-    pub async fn umount(&self, mount_point: &str) {
-        let mut cmd = Command::new("/sbin/umount");
+    pub async fn umount(&self, mount_point: &str) -> OpendalMountResult<()> {
+        FsMounter::umount(mount_point).await?;
+
+        Ok(())
+    }
+
+    pub async fn umount_all(&self) -> OpendalMountResult<()> {
+        debug!("Unmounting all operators at {}:{}", self.ip, self.port);
+
+        let ops = self.ops.read().await;
+
+        for (mount_point, _) in ops.iter() {
+            match self.umount(mount_point).await {
+                Ok(_) => info!("Unmounted {}", mount_point),
+                Err(e) => error!("Failed to unmount {}: {}", mount_point, e),
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn mounted_operators(&self) -> Vec<MountedFs> {
@@ -90,7 +106,23 @@ impl NFSFileSystem for MultiplexedFs {
         debug!("Getattr {}", id);
 
         if id == 1 {
-            return Ok(fattr3::default());
+            let mtime = nfstime3::default();
+
+            return Ok(fattr3 {
+                ftype: ftype3::NF3DIR,
+                mode: 0o777,
+                nlink: 0,
+                uid: 507,
+                gid: 507,
+                size: 0,
+                used: 0,
+                rdev: specdata3::default(),
+                fsid: 0,
+                fileid: 1,
+                atime: mtime,
+                mtime,
+                ctime: mtime,
+            });
         }
 
         Err(nfsstat3::NFS3ERR_NOENT)
