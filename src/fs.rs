@@ -1,4 +1,3 @@
-use futures::{future, stream, StreamExt, TryStreamExt};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -8,29 +7,27 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiMap;
-use log::{debug, error, info};
+use log::{debug, warn};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
 };
-use opendal::{Entry, Metakey, Operator};
+use opendal::Operator;
 use tokio::sync::RwLock;
 
 pub struct OpendalFs {
     operator: Operator,
     inodes: Arc<RwLock<BiMap<u64, String>>>,
-    read_only: bool,
 }
 
 impl OpendalFs {
-    pub fn new(operator: Operator, read_only: bool) -> Self {
+    pub fn new(operator: Operator) -> Self {
         let mut inodes = BiMap::new();
         inodes.insert(1, "/".to_string());
 
         OpendalFs {
             operator,
             inodes: Arc::new(RwLock::new(inodes)),
-            read_only,
         }
     }
 
@@ -58,16 +55,10 @@ impl OpendalFs {
     }
 
     async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
-        let entry = Entry::new(path);
-
-        let meta = self
-            .operator
-            .metadata(&entry, Metakey::Mode)
-            .await
-            .map_err(|e| {
-                info!("unable to get metadata for {:?}: {}", path, e);
-                nfsstat3::NFS3ERR_NOENT
-            })?;
+        let meta = self.operator.stat(&path).await.map_err(|e| {
+            warn!("unable to get metadata for {:?}: {}", path, e);
+            nfsstat3::NFS3ERR_NOENT
+        })?;
 
         let kind = if meta.is_dir() {
             ftype3::NF3DIR
@@ -114,16 +105,45 @@ impl NFSFileSystem for OpendalFs {
 
     fn capabilities(&self) -> VFSCapabilities {
         debug!("capabilities");
-        if self.read_only {
-            VFSCapabilities::ReadOnly
-        } else {
+
+        if self.operator.info().full_capability().write {
             VFSCapabilities::ReadWrite
+        } else {
+            VFSCapabilities::ReadOnly
         }
     }
 
     async fn write(&self, id: fileid3, offset: u64, data: &[u8]) -> Result<fattr3, nfsstat3> {
         debug!("write {:?} {:?} {:?}", id, offset, data);
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+
+        let path = self.inode_to_path(id).await;
+
+        if let Some(path) = path {
+            if offset == 0 {
+                self.operator
+                    .write(&path, data.to_vec())
+                    .await
+                    .map_err(|_| {
+                        warn!("unable to write to {:?}", path);
+                        nfsstat3::NFS3ERR_IO
+                    })
+            } else {
+                self.operator
+                    .write_with(&path, data.to_vec())
+                    .append(true)
+                    .await
+                    .map_err(|_| {
+                        warn!("unable to append to {:?}", path);
+                        nfsstat3::NFS3ERR_IO
+                    })
+            }?;
+
+            let attr = self.path_to_attr(id, &path).await?;
+
+            Ok(attr)
+        } else {
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
     }
 
     async fn create(
@@ -133,16 +153,46 @@ impl NFSFileSystem for OpendalFs {
         _attr: sattr3,
     ) -> Result<(fileid3, fattr3), nfsstat3> {
         debug!("create {:?} {:?}", dirid, filename);
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+
+        let filename = std::str::from_utf8(&filename.0);
+        let path = self.inode_to_path(dirid).await;
+
+        if let (Ok(filename), Some(path)) = (filename, path) {
+            let path = Path::new(&path).join(filename);
+            let ino = self
+                .path_to_inode(&path.display().to_string(), true)
+                .await?;
+
+            self.write(ino, 0, &[]).await.map(|attr| (ino, attr))
+        } else {
+            warn!("unable to create file {:?} {:?}", dirid, filename);
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
     }
 
     async fn create_exclusive(
         &self,
-        _dirid: fileid3,
-        _filename: &filename3,
+        dirid: fileid3,
+        filename: &filename3,
     ) -> Result<fileid3, nfsstat3> {
-        debug!("create_exclusive");
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+        debug!("create_exclusive {:?} {:?}", dirid, filename);
+
+        let filename = std::str::from_utf8(&filename.0);
+        let path = self.inode_to_path(dirid).await;
+
+        if let (Ok(filename), Some(path)) = (filename, path) {
+            let path = Path::new(&path).join(filename);
+            let ino = self
+                .path_to_inode(&path.display().to_string(), true)
+                .await?;
+
+            self.write(ino, 0, &[0]).await?;
+
+            Ok(ino)
+        } else {
+            warn!("unable to create file {:?} {:?}", dirid, filename);
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
     }
 
     async fn lookup(&self, dirid: fileid3, filename: &filename3) -> Result<fileid3, nfsstat3> {
@@ -172,7 +222,15 @@ impl NFSFileSystem for OpendalFs {
     }
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
         debug!("setattr {:?} {:?}", id, setattr);
-        Err(nfsstat3::NFS3ERR_NOTSUPP)
+
+        let path = self
+            .inode_to_path(id)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        let attrs = self.path_to_attr(id, &path).await?;
+
+        Ok(attrs)
     }
 
     async fn read(
@@ -190,7 +248,8 @@ impl NFSFileSystem for OpendalFs {
 
         let data = self
             .operator
-            .range_read(&path, offset..offset + count as u64)
+            .read_with(&path)
+            .range(offset..offset + count as u64)
             .await;
 
         match data {
@@ -199,7 +258,7 @@ impl NFSFileSystem for OpendalFs {
                 Ok((data, eof))
             }
             Err(e) => {
-                error!("read error: {:?}", e);
+                warn!("read error: {:?}", e);
                 Err(nfsstat3::NFS3ERR_NOENT)
             }
         }
@@ -218,7 +277,7 @@ impl NFSFileSystem for OpendalFs {
             .await
             .ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        let mut ds = self
+        let ds = self
             .operator
             .list(&path)
             .await
@@ -228,7 +287,7 @@ impl NFSFileSystem for OpendalFs {
 
         let mut capture: bool = start_after == 0;
 
-        while let Some(de) = ds.try_next().await.unwrap() {
+        for de in ds {
             let id = self.path_to_inode(de.path(), true).await?;
 
             if capture {
@@ -281,11 +340,31 @@ impl NFSFileSystem for OpendalFs {
     #[allow(unused)]
     async fn mkdir(
         &self,
-        _dirid: fileid3,
-        _dirname: &filename3,
+        dirid: fileid3,
+        dirname: &filename3,
     ) -> Result<(fileid3, fattr3), nfsstat3> {
-        debug!("mkdir");
-        Err(nfsstat3::NFS3ERR_ROFS)
+        debug!("mkdir {:?} {:?}", dirid, dirname);
+
+        let dirname = std::str::from_utf8(&dirname.0);
+        let path = self.inode_to_path(dirid).await;
+
+        if let (Ok(dirname), Some(path)) = (dirname, path) {
+            let path = Path::new(&path).join(dirname);
+            let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?;
+            let ino = self.path_to_inode(&path, true).await?;
+
+            self.operator.create_dir(path).await.map_err(|e| {
+                warn!("unable to create dir {:?} {:?}: {:?}", dirid, dirname, e);
+                nfsstat3::NFS3ERR_NOENT
+            })?;
+
+            let attr = self.path_to_attr(ino, &path).await?;
+
+            Ok((ino, attr))
+        } else {
+            warn!("unable to create file {:?} {:?}", dirid, dirname);
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
     }
 
     async fn symlink(

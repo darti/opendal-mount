@@ -1,0 +1,139 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'opendal-mount'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "opendal-mount",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'rmk'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=rmk",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "rmk",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'rmk'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=rmk",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "rmk",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'local_overlay'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=local_overlay",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "local_overlay",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'local_overlay'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=local_overlay",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "local_overlay",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'overlay'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=overlay",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "overlay",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'common'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=common",
+                    "--package=opendal-mount"
+                ],
+                "filter": {
+                    "name": "common",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
