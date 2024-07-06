@@ -8,6 +8,7 @@ use crate::{errors::OpendalMountError, MultiplexedFs};
 
 #[derive(SimpleObject)]
 pub struct MountedFs {
+    pub id: String,
     pub mount_point: String,
     pub scheme: String,
     pub root: String,

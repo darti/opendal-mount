@@ -1,7 +1,13 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap},
+    hash::{Hash, Hasher},
+    path::{Component, Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
-use log::{debug, error, info};
+use bimap::BiMap;
+use log::{debug, error, info, warn};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{NFSFileSystem, ReadDirResult, VFSCapabilities},
@@ -17,28 +23,108 @@ use crate::{
     schema::MountedFs,
 };
 
+struct MountedOperator {
+    mount_point: String,
+    op: Operator,
+}
+
 #[derive(Clone)]
 pub struct MultiplexedFs {
     ip: String,
     port: u16,
-    ops: Arc<RwLock<HashMap<String, Operator>>>,
+    ops: Arc<RwLock<HashMap<String, MountedOperator>>>,
+    inodes: Arc<RwLock<BiMap<u64, String>>>,
 }
 
 impl MultiplexedFs {
     pub fn new(ip: &str, port: u16) -> Self {
+        let mut inodes = BiMap::new();
+        inodes.insert(1, "/".to_string());
+
         Self {
             ip: ip.to_owned(),
             port,
             ops: Arc::new(RwLock::new(HashMap::new())),
+            inodes: Arc::new(RwLock::new(inodes)),
         }
     }
+
+    async fn inode_to_path(&self, inode: u64) -> Option<String> {
+        self.inodes.read().await.get_by_left(&inode).cloned()
+    }
+
+    async fn path_to_inode(&self, path: &str, insert: bool) -> Result<u64, nfsstat3> {
+        let ino = self.inodes.read().await.get_by_right(path).copied();
+
+        match ino {
+            Some(ino) => Ok(ino),
+            None if insert => {
+                let mut hasher = DefaultHasher::new();
+                path.hash(&mut hasher);
+                let ino = hasher.finish();
+
+                let mut inodes = self.inodes.write().await;
+                (*inodes).insert(ino, path.to_owned());
+
+                Ok(ino)
+            }
+            _ => Err(nfsstat3::NFS3ERR_NOENT),
+        }
+    }
+
+    async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
+        let meta = self.operator.stat(&path).await.map_err(|e| {
+            warn!("unable to get metadata for {:?}: {}", path, e);
+            nfsstat3::NFS3ERR_NOENT
+        })?;
+
+        let kind = if meta.is_dir() {
+            ftype3::NF3DIR
+        } else {
+            ftype3::NF3REG
+        };
+
+        let mtime = if let Some(mtime) = meta.last_modified() {
+            nfstime3 {
+                seconds: mtime.timestamp() as u32,
+                nseconds: 0,
+            }
+        } else {
+            nfstime3::default()
+        };
+
+        let mode = if meta.is_dir() { 0o777 } else { 0o755 };
+
+        Ok(fattr3 {
+            ftype: kind,
+            mode,
+            nlink: 0,
+            uid: 507,
+            gid: 507,
+            size: meta.content_length(),
+            used: meta.content_length(),
+            rdev: specdata3::default(),
+            fsid: 0,
+            fileid: ino,
+            atime: mtime,
+            mtime,
+            ctime: mtime,
+        })
+    }
+
     pub async fn mount_operator(&self, mount_point: &str, op: Operator) -> OpendalMountResult<()> {
         let mut ops = self.ops.write().await;
 
         let prefix = Uuid::new_v4().to_string();
 
         info!("Mounting{} at {}", op.info().name(), mount_point);
-        ops.insert(mount_point.to_owned(), op);
+        ops.insert(
+            mount_point.to_owned(),
+            MountedOperator {
+                mount_point: mount_point.to_owned(),
+                op,
+            },
+        );
 
         FsMounter::mount(&self.ip, self.port, &prefix, mount_point, true).await?;
 
@@ -71,10 +157,11 @@ impl MultiplexedFs {
 
         ops.iter()
             .map(|(key, op)| {
-                let info = op.info();
+                let info = op.op.info();
 
                 MountedFs {
-                    mount_point: key.to_owned(),
+                    id: key.to_owned(),
+                    mount_point: op.mount_point.to_owned(),
                     scheme: info.scheme().to_string(),
                     root: info.root().to_owned(),
                     name: info.name().to_owned(),
