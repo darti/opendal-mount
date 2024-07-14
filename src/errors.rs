@@ -8,8 +8,8 @@ pub enum OpendalMountError {
     #[error("Unsupported scheme type {0}")]
     UnsupportedScheme(String),
 
-    #[error("Multiplexed FS not found")]
-    MultiplexedNotFound(),
+    #[error("NFSServer FS not found")]
+    NFSServerNotFound(),
 
     #[error("FS already mounted at {0}")]
     AlreadyMounted(String),

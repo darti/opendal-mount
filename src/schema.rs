@@ -1,12 +1,12 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, default, str::FromStr};
 
 use async_graphql::*;
 use log::{debug, error};
 use opendal::{Operator, Scheme};
 
-use crate::{errors::OpendalMountError, MultiplexedFs};
+use crate::{errors::OpendalMountError, NFSServer};
 
-#[derive(SimpleObject)]
+#[derive(SimpleObject, Default, Debug)]
 pub struct MountedFs {
     pub id: String,
     pub mount_point: String,
@@ -20,11 +20,19 @@ pub struct Query;
 #[Object]
 impl Query {
     async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> async_graphql::Result<Vec<MountedFs>> {
-        let mfs = ctx
-            .data::<MultiplexedFs>()
-            .map_err(|_| OpendalMountError::MultiplexedNotFound())?;
+        let nfs = ctx
+            .data::<NFSServer>()
+            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
 
-        Ok(mfs.mounted_operators().await)
+        nfs.file_systems()
+            .iter()
+            .map(|id| {
+                Ok(MountedFs {
+                    id: id.to_string(),
+                    ..Default::default()
+                })
+            })
+            .collect()
     }
 }
 
@@ -41,20 +49,19 @@ impl Mutation {
     ) -> async_graphql::Result<String> {
         debug!("mounting {} at {}", service, mount_point);
 
-        let mfs = ctx.data::<MultiplexedFs>().map_err(|e| {
-            error!("Multiplexed FS not found: {:#?}", e);
-            OpendalMountError::MultiplexedNotFound()
-        })?;
+        let nfs = ctx
+            .data::<NFSServer>()
+            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
 
         let scheme = Scheme::from_str(&service)
             .map_err(|_| OpendalMountError::UnsupportedScheme(service))?;
 
-        let op = Operator::via_map(scheme, parameters).map_err(|e| {
-            error!("operator creation failure: {}", e);
-            OpendalMountError::OperatorCreateError(format!("{}", e))
-        })?;
+        // let op = Operator::via_map(scheme, parameters).map_err(|e| {
+        //     error!("operator creation failure: {}", e);
+        //     OpendalMountError::OperatorCreateError(format!("{}", e))
+        // })?;
 
-        mfs.mount_operator(&mount_point, op).await?;
+        // mfs.mount_operator(&mount_point, op).await?;
 
         Ok(mount_point)
     }

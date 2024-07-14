@@ -255,7 +255,7 @@ impl NFSFileSystem for OpendalFs {
         match data {
             Ok(data) => {
                 let eof = data.len() < count as usize;
-                Ok((data, eof))
+                Ok((data.to_vec(), eof))
             }
             Err(e) => {
                 warn!("read error: {:?}", e);

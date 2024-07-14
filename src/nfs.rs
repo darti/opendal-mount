@@ -1,25 +1,43 @@
-use std::io;
+use std::{collections::HashMap, io};
 
-use tokio::net::TcpListener;
+use nfsserve::tcp::{NFSTcp, NFSTcpListener};
+use opendal::Operator;
+use uuid::Uuid;
 
-pub struct NFSServer {}
+use crate::OpendalFs;
+
+#[derive(Default)]
+pub struct NFSServer {
+    listeners: HashMap<Uuid, NFSTcpListener<OpendalFs>>,
+}
 
 impl NFSServer {
-    pub async fn new(addr: &str) -> io::Result<Self> {
-        let listener = TcpListener::bind(addr).await?;
+    pub async fn register(&mut self, ipstr: &str, op: Operator) -> io::Result<Uuid> {
+        let fs = OpendalFs::new(op);
 
-        let context = RPCContext {
-            local_port: self.port,
-            client_addr: socket.peer_addr().unwrap().to_string(),
-            auth: crate::rpc::auth_unix::default(),
-            vfs: self.arcfs.clone(),
-            mount_signal: self.mount_signal.clone(),
-        };
+        let listener = NFSTcpListener::bind(ipstr, fs).await?;
+        listener.handle().await?;
 
-        let (mut message_handler, mut socksend, mut msgrecvchan) =
-            SocketMessageHandler::new(&context);
-        let _ = socket.set_nodelay(true);
+        let id = Uuid::new_v4();
+        self.listeners.insert(id, listener);
 
-        Ok(Self {})
+        Ok(id)
+    }
+
+    pub async fn unregister(&mut self, id: &Uuid) -> bool {
+        let listener = self.listeners.remove(id);
+
+        if let Some(listener) = listener {
+            let task = listener.stop().await;
+            task.wait().await;
+
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn file_systems(&self) -> Vec<Uuid> {
+        self.listeners.keys().cloned().collect()
     }
 }
