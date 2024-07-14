@@ -12,12 +12,9 @@ use axum::{
 };
 use clap::Parser;
 use log::info;
-use nfsserve::tcp::NFSTcp;
-use nfsserve::tcp::NFSTcpListener;
-use opendal_mount::{
-    schema::{Mutation, Query},
-    MultiplexedFs,
-};
+
+use opendal_mount::schema::{Mutation, Query};
+use opendal_mount::NFSServer;
 
 use tokio::{
     net::TcpListener,
@@ -51,24 +48,12 @@ async fn main() -> anyhow::Result<()> {
     console_subscriber::init();
     let args = Args::parse();
 
-    let fs = MultiplexedFs::new(&args.host, args.port);
-    let fs_nfs = fs.clone();
-    let fs_umount = fs.clone();
+    let nfsserver = NFSServer::default();
 
-    info!("Starting FS");
-    tokio::spawn(async move {
-        info!("Serving FS on {}:{}", args.host, args.port);
-
-        let listener =
-            NFSTcpListener::bind(&format!("{}:{}", args.host, args.port), fs_nfs).await?;
-
-        listener.handle_forever().await
-    });
-
-    info!("Starting GraphQL");
+    info!("Starting GraphQL server on {}", args.graphql_addr);
     tokio::spawn(async move {
         let schema = Schema::build(Query, Mutation, EmptySubscription)
-            .data(fs)
+            .data(nfsserver)
             .finish();
 
         let app = Router::new().route(
@@ -96,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    fs_umount.umount_all().await?;
+    // fs_umount.umount_all().await?;
 
     Ok(())
 }
