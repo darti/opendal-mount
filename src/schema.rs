@@ -45,9 +45,7 @@ impl NFSContext for Context<'_> {
 impl Query {
     #[inline]
     async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> async_graphql::Result<Vec<MountedFs>> {
-        let nfs = ctx
-            .data::<NFSServer>()
-            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
+        let nfs = ctx.nfs_server()?;
 
         nfs.file_systems()
             .iter()
