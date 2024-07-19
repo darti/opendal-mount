@@ -45,7 +45,9 @@ impl NFSContext for Context<'_> {
 impl Query {
     #[inline]
     async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> async_graphql::Result<Vec<MountedFs>> {
-        let nfs = ctx.nfs_server()?;
+        let nfs = ctx
+            .data::<NFSServer>()
+            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
 
         nfs.file_systems()
             .iter()
@@ -85,6 +87,11 @@ impl Mutation {
         })?;
 
         let op = Operator::via_map(scheme, parameters).context(OperatorCreationFailureSnafu {})?;
+
+        // let op = Operator::via_map(scheme, parameters).map_err(|e| {
+        //     error!("operator creation failure: {}", e);
+        //     OpendalMountError::OperatorCreateError(format!("{}", e))
+        // })?;
 
         // mfs.mount_operator(&mount_point, op).await?;
 
