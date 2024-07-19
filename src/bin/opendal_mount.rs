@@ -1,7 +1,7 @@
 use anyhow::Ok;
 
 use async_graphql::{
-    http::{playground_source, GraphQLPlaygroundConfig},
+    http::{playground_source, GraphQLPlaygroundConfig, GraphiQLSource},
     EmptySubscription, Schema,
 };
 use async_graphql_axum::GraphQL;
@@ -41,6 +41,10 @@ struct Args {
 
 async fn graphql_playground() -> impl IntoResponse {
     Html(playground_source(GraphQLPlaygroundConfig::new("/")))
+}
+
+async fn graphiql() -> impl IntoResponse {
+    Html(GraphiQLSource::build().endpoint("/").finish())
 }
 
 #[tokio::main]

@@ -1,10 +1,23 @@
-use std::{collections::HashMap, default, str::FromStr};
+use opendal::{EntryMode, Operator, Scheme};
+use snafu::prelude::*;
+use std::{collections::HashMap, fmt::Debug, str::FromStr};
 
 use async_graphql::*;
 use log::{debug, error};
-use opendal::{Operator, Scheme};
 
-use crate::{errors::OpendalMountError, NFSServer};
+use crate::NFSServer;
+
+#[derive(Debug, Snafu)]
+pub(crate) enum GraphQLError {
+    #[snafu(display("Unsupported scheme type {scheme}"))]
+    UnsupportedScheme { scheme: String },
+
+    #[snafu(display("NFSServer FS not found in GraphQL context"))]
+    NFSServerNotFound,
+
+    #[snafu(display("Fail to create operator with parameters: {source}"))]
+    OperatorCreationFailure { source: opendal::Error },
+}
 
 #[derive(SimpleObject, Default, Debug)]
 pub struct MountedFs {
@@ -17,12 +30,22 @@ pub struct MountedFs {
 
 pub struct Query;
 
+trait NFSContext {
+    fn nfs_server(&self) -> Result<&NFSServer, GraphQLError>;
+}
+
+impl NFSContext for Context<'_> {
+    fn nfs_server(&self) -> Result<&NFSServer, GraphQLError> {
+        self.data::<NFSServer>()
+            .map_err(|_| GraphQLError::NFSServerNotFound)
+    }
+}
+
 #[Object]
 impl Query {
+    #[inline]
     async fn fs<'ctx>(&self, ctx: &Context<'ctx>) -> async_graphql::Result<Vec<MountedFs>> {
-        let nfs = ctx
-            .data::<NFSServer>()
-            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
+        let nfs = ctx.nfs_server()?;
 
         nfs.file_systems()
             .iter()
@@ -46,20 +69,22 @@ impl Mutation {
         service: String,
         parameters: HashMap<String, String>,
         mount_point: String,
-    ) -> async_graphql::Result<String> {
-        debug!("mounting {} at {}", service, mount_point);
+    ) -> Result<String, GraphQLError> {
+        debug!(
+            "mounting {} at {} with parameters {:?}",
+            service, mount_point, parameters
+        );
 
-        let nfs = ctx
-            .data::<NFSServer>()
-            .map_err(|_| OpendalMountError::NFSServerNotFound())?;
+        let nfs = ctx.nfs_server()?;
 
-        let scheme = Scheme::from_str(&service)
-            .map_err(|_| OpendalMountError::UnsupportedScheme(service))?;
+        let scheme = Scheme::from_str(&service).map_err(|_| {
+            UnsupportedSchemeSnafu {
+                scheme: service.clone(),
+            }
+            .build()
+        })?;
 
-        // let op = Operator::via_map(scheme, parameters).map_err(|e| {
-        //     error!("operator creation failure: {}", e);
-        //     OpendalMountError::OperatorCreateError(format!("{}", e))
-        // })?;
+        let op = Operator::via_map(scheme, parameters).context(OperatorCreationFailureSnafu {})?;
 
         // mfs.mount_operator(&mount_point, op).await?;
 
