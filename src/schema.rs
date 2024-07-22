@@ -1,9 +1,10 @@
-use opendal::{EntryMode, Operator, Scheme};
+use opendal::{Operator, Scheme};
 use snafu::prelude::*;
-use std::{collections::HashMap, fmt::Debug, str::FromStr};
+use std::{collections::HashMap, fmt::Debug, io, str::FromStr};
+use uuid::Uuid;
 
 use async_graphql::*;
-use log::{debug, error};
+use log::{debug, error, info};
 
 use crate::NFSServer;
 
@@ -17,6 +18,9 @@ pub(crate) enum GraphQLError {
 
     #[snafu(display("Fail to create operator with parameters: {source}"))]
     OperatorCreationFailure { source: opendal::Error },
+
+    #[snafu(display("Fail to register operator: {source}"))]
+    OperatorRegistrationFailure { source: io::Error },
 }
 
 #[derive(SimpleObject, Default, Debug)]
@@ -48,6 +52,7 @@ impl Query {
         let nfs = ctx.nfs_server()?;
 
         nfs.file_systems()
+            .await
             .iter()
             .map(|id| {
                 Ok(MountedFs {
@@ -68,10 +73,10 @@ impl Mutation {
         ctx: &Context<'ctx>,
         service: String,
         parameters: HashMap<String, String>,
-        mount_point: String,
-    ) -> Result<String, GraphQLError> {
+        mount_point: Option<String>,
+    ) -> Result<Uuid, GraphQLError> {
         debug!(
-            "mounting {} at {} with parameters {:?}",
+            "mounting {} at {:?} with parameters {:?}",
             service, mount_point, parameters
         );
 
@@ -86,6 +91,11 @@ impl Mutation {
 
         let op = Operator::via_map(scheme, parameters).context(OperatorCreationFailureSnafu {})?;
 
+        let id = nfs
+            .register("127.0.0.1:20000", op)
+            .await
+            .context(OperatorRegistrationFailureSnafu {})?;
+
         // let op = Operator::via_map(scheme, parameters).map_err(|e| {
         //     error!("operator creation failure: {}", e);
         //     OpendalMountError::OperatorCreateError(format!("{}", e))
@@ -93,6 +103,10 @@ impl Mutation {
 
         // mfs.mount_operator(&mount_point, op).await?;
 
-        Ok(mount_point)
+        if let Some(mount_point) = mount_point {
+            info!("Mounting {} at {}", service, mount_point)
+        }
+
+        Ok(id)
     }
 }
