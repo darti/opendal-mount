@@ -1,6 +1,6 @@
 pub mod errors;
 mod fs;
-mod mount;
+pub mod mount;
 mod nfs;
 pub mod schema;
 

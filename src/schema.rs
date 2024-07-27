@@ -1,3 +1,4 @@
+use axum::routing::method_routing;
 use opendal::{Operator, Scheme};
 use snafu::prelude::*;
 use std::{collections::HashMap, fmt::Debug, io, str::FromStr};
@@ -6,7 +7,10 @@ use uuid::Uuid;
 use async_graphql::*;
 use log::{debug, error, info};
 
-use crate::NFSServer;
+use crate::{
+    mount::{FsMounter, Mounter},
+    NFSServer,
+};
 
 #[derive(Debug, Snafu)]
 pub(crate) enum GraphQLError {
@@ -21,6 +25,12 @@ pub(crate) enum GraphQLError {
 
     #[snafu(display("Fail to register operator: {source}"))]
     OperatorRegistrationFailure { source: io::Error },
+
+    #[snafu(display("Fail to mount fs at {mount_point}: {source}"))]
+    MountError {
+        source: io::Error,
+        mount_point: String,
+    },
 }
 
 #[derive(SimpleObject, Default, Debug)]
@@ -96,15 +106,14 @@ impl Mutation {
             .await
             .context(OperatorRegistrationFailureSnafu {})?;
 
-        // let op = Operator::via_map(scheme, parameters).map_err(|e| {
-        //     error!("operator creation failure: {}", e);
-        //     OpendalMountError::OperatorCreateError(format!("{}", e))
-        // })?;
-
-        // mfs.mount_operator(&mount_point, op).await?;
-
         if let Some(mount_point) = mount_point {
-            info!("Mounting {} at {}", service, mount_point)
+            info!("Mounting {} at {}", service, mount_point);
+
+            FsMounter::mount("127.0.0.1", 20000, "", &mount_point, false)
+                .await
+                .context(MountSnafu {
+                    mount_point: mount_point.clone(),
+                })?;
         }
 
         Ok(id)

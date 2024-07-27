@@ -1,4 +1,9 @@
-use std::{collections::HashMap, io, net::IpAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    io,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use log::debug;
 use nfsserve::service::NFSService;
@@ -23,12 +28,10 @@ impl NFSServer {
         debug!("Starting nfs service on {}", ipstr);
         let fs = OpendalFs::new(op);
 
-        let service = NFSService::new(fs);
+        let service = NFSService::new(fs, ipstr).await?;
         let recorded_service = service.clone();
 
-        let addr = ipstr.to_owned();
-
-        let s = tokio::spawn(async move { service.handle(addr).await });
+        let _s = tokio::spawn(async move { service.handle().await });
 
         let id = Uuid::new_v4();
         self.inner
@@ -51,6 +54,15 @@ impl NFSServer {
         } else {
             false
         }
+    }
+
+    pub async fn local_addr(&self, id: &Uuid) -> Option<SocketAddr> {
+        self.inner
+            .lock()
+            .await
+            .services
+            .get(id)
+            .map(|s| s.local_addr())
     }
 
     pub async fn file_systems(&self) -> Vec<Uuid> {
