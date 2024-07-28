@@ -1,8 +1,6 @@
 use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
     path::Path,
-    sync::Arc,
+    sync::{atomic::AtomicU64, Arc},
 };
 
 use async_trait::async_trait;
@@ -19,6 +17,7 @@ use tokio::sync::RwLock;
 pub struct OpendalFs {
     operator: Operator,
     inodes: Arc<RwLock<BiMap<u64, String>>>,
+    next_ino: Arc<AtomicU64>,
 }
 
 impl OpendalFs {
@@ -29,6 +28,7 @@ impl OpendalFs {
         OpendalFs {
             operator,
             inodes: Arc::new(RwLock::new(inodes)),
+            next_ino: Arc::new(2.into()),
         }
     }
 
@@ -42,9 +42,9 @@ impl OpendalFs {
         match ino {
             Some(ino) => Ok(ino),
             None if insert => {
-                let mut hasher = DefaultHasher::new();
-                path.hash(&mut hasher);
-                let ino = hasher.finish();
+                let ino = self
+                    .next_ino
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                 let mut inodes = self.inodes.write().await;
                 (*inodes).insert(ino, path.to_owned());
