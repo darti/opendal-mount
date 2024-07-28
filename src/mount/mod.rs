@@ -50,7 +50,7 @@ pub trait Mounter {
     async fn umount(mount_path: &str) -> Result<(), std::io::Error> {
         let mut cmd = Self::umount_command(mount_path);
 
-        debug!("Mounting with: {:?}", cmd);
+        debug!("Unmounting with: {:?}", cmd);
 
         let status = cmd.status().await?;
         if !status.success() {
