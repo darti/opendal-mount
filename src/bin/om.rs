@@ -53,5 +53,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    FsMounter::umount(&mount_point).await?;
+
     Ok(())
 }
