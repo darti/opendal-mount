@@ -1,8 +1,9 @@
-use log::info;
+use log::{error, info};
+use nfsserve::service::NFSService;
 use opendal::{services::Fs, Operator};
 use opendal_mount::{
     mount::{FsMounter, Mounter},
-    NFSServer,
+    OpendalFs,
 };
 use tokio::{
     select,
@@ -11,6 +12,7 @@ use tokio::{
         unix::{signal, SignalKind},
     },
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,21 +24,31 @@ async fn main() -> anyhow::Result<()> {
     builder.root(".");
     let op = Operator::new(builder)?.finish();
 
-    let nfs = NFSServer::default();
+    let cancellation_token = CancellationToken::new();
+    let task_tracker = TaskTracker::new();
 
-    let id = nfs.register("localhost:0", op).await?;
-    let addr = nfs.local_addr(&id).await;
+    let nfs = NFSService::new(
+        OpendalFs::new(op),
+        "localhost:0",
+        Some(cancellation_token.clone()),
+        Some(task_tracker.clone()),
+    )
+    .await?;
 
-    info!(
-        "Registered NFS service with id {}, listening on {:?}",
-        id, addr
-    );
+    let addr = nfs.local_addr();
+
+    let _h = task_tracker.spawn(async move {
+        match nfs.handle().await {
+            Ok(_) => info!("NFS service stopped"),
+            Err(e) => error!("Error handling NFS service: {:?}", e),
+        };
+    });
+
+    info!("Registered NFS service , listening on {:?}", addr);
 
     let mount_point = "../mnt";
 
-    if let Some(addr) = addr {
-        FsMounter::mount(&addr.ip().to_string(), addr.port(), "", &mount_point, false).await?;
-    }
+    FsMounter::mount(&addr.ip().to_string(), addr.port(), "", &mount_point, false).await?;
 
     info!("Running, press Ctrl-C to stop");
 
