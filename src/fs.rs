@@ -56,7 +56,7 @@ impl OpendalFs {
     }
 
     async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
-        let meta = self.operator.stat(&path).await.map_err(|e| {
+        let meta = self.operator.stat(path).await.map_err(|e| {
             warn!("unable to get metadata for {:?}: {}", path, e);
             nfsstat3::NFS3ERR_NOENT
         })?;
@@ -352,14 +352,14 @@ impl NFSFileSystem for OpendalFs {
         if let (Ok(dirname), Some(path)) = (dirname, path) {
             let path = Path::new(&path).join(dirname);
             let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?;
-            let ino = self.path_to_inode(&path, true).await?;
+            let ino = self.path_to_inode(path, true).await?;
 
             self.operator.create_dir(path).await.map_err(|e| {
                 warn!("unable to create dir {:?} {:?}: {:?}", dirid, dirname, e);
                 nfsstat3::NFS3ERR_NOENT
             })?;
 
-            let attr = self.path_to_attr(ino, &path).await?;
+            let attr = self.path_to_attr(ino, path).await?;
 
             Ok((ino, attr))
         } else {

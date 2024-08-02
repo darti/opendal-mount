@@ -48,25 +48,23 @@ async fn main() -> anyhow::Result<()> {
 
     let mount_point = "../mnt";
 
-    FsMounter::mount(&addr.ip().to_string(), addr.port(), "", &mount_point, false).await?;
+    FsMounter::mount(&addr.ip().to_string(), addr.port(), "", mount_point, false).await?;
 
     info!("Running, press Ctrl-C to stop");
 
-    loop {
-        select! {
-            _ = signal::ctrl_c() => {
-                info!("Received Ctrl-C, stopping");
-                break;
-            }
-            _ = sig_term.recv() => {
-                info!("Received SIGTERM, stopping");
-                break;
-            }
+    select! {
+        _ = signal::ctrl_c() => {
+            info!("Received Ctrl-C, stopping");
+
+        }
+        _ = sig_term.recv() => {
+            info!("Received SIGTERM, stopping");
+
         }
     }
 
     info!("Unmounting NFS service");
-    FsMounter::umount(&mount_point).await?;
+    FsMounter::umount(mount_point).await?;
 
     info!("Clean exit");
 
