@@ -98,12 +98,6 @@ impl OpendalFs {
 
 #[async_trait]
 impl NFSFileSystem for OpendalFs {
-    fn root_dir(&self) -> fileid3 {
-        debug!("root_dir");
-
-        1
-    }
-
     fn capabilities(&self) -> VFSCapabilities {
         debug!("capabilities");
 
@@ -111,6 +105,82 @@ impl NFSFileSystem for OpendalFs {
             VFSCapabilities::ReadWrite
         } else {
             VFSCapabilities::ReadOnly
+        }
+    }
+
+    fn root_dir(&self) -> fileid3 {
+        debug!("root_dir");
+
+        1
+    }
+
+    async fn lookup(&self, dirid: fileid3, filename: &filename3) -> Result<fileid3, nfsstat3> {
+        debug!("lookup {:?} {:?}", dirid, filename);
+
+        let filename = std::str::from_utf8(&filename.0);
+        let path = self.inode_to_path(dirid).await;
+
+        if let (Ok(filename), Some(path)) = (filename, path) {
+            let path = Path::new(&path).join(filename);
+
+            self.path_to_inode(&path.display().to_string(), false).await
+        } else {
+            Err(nfsstat3::NFS3ERR_NOENT)
+        }
+    }
+
+    async fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
+        debug!("getattr {:?}", id);
+
+        let path = self
+            .inode_to_path(id)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        self.path_to_attr(id, &path).await
+    }
+
+    async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
+        debug!("setattr {:?} {:?}", id, setattr);
+
+        let path = self
+            .inode_to_path(id)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        let attrs = self.path_to_attr(id, &path).await?;
+
+        Ok(attrs)
+    }
+
+    async fn read(
+        &self,
+        id: fileid3,
+        offset: u64,
+        count: u32,
+    ) -> Result<(Vec<u8>, bool), nfsstat3> {
+        debug!("read {:?} from {:?} count {:?}", id, offset, count);
+
+        let path = self
+            .inode_to_path(id)
+            .await
+            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+
+        let data = self
+            .operator
+            .read_with(&path)
+            // .range(offset..(offset + count as u64))
+            .await;
+
+        match data {
+            Ok(data) => {
+                let eof = data.len() <= count as usize;
+                Ok((data.to_vec(), eof))
+            }
+            Err(e) => {
+                warn!("read error: {:?}", e);
+                Err(nfsstat3::NFS3ERR_NOENT)
+            }
         }
     }
 
@@ -146,7 +216,6 @@ impl NFSFileSystem for OpendalFs {
             Err(nfsstat3::NFS3ERR_NOENT)
         }
     }
-
     async fn create(
         &self,
         dirid: fileid3,
@@ -196,73 +265,61 @@ impl NFSFileSystem for OpendalFs {
         }
     }
 
-    async fn lookup(&self, dirid: fileid3, filename: &filename3) -> Result<fileid3, nfsstat3> {
-        debug!("lookup {:?} {:?}", dirid, filename);
+    #[allow(unused)]
+    async fn mkdir(
+        &self,
+        dirid: fileid3,
+        dirname: &filename3,
+    ) -> Result<(fileid3, fattr3), nfsstat3> {
+        debug!("mkdir {:?} {:?}", dirid, dirname);
 
-        let filename = std::str::from_utf8(&filename.0);
+        let dirname = std::str::from_utf8(&dirname.0);
         let path = self.inode_to_path(dirid).await;
 
-        if let (Ok(filename), Some(path)) = (filename, path) {
-            let path = Path::new(&path).join(filename);
+        if let (Ok(dirname), Some(path)) = (dirname, path) {
+            let path = Path::new(&path).join(dirname);
+            let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?;
+            let ino = self.path_to_inode(path, true).await?;
 
-            self.path_to_inode(&path.display().to_string(), false).await
+            self.operator.create_dir(path).await.map_err(|e| {
+                warn!("unable to create dir {:?} {:?}: {:?}", dirid, dirname, e);
+                nfsstat3::NFS3ERR_NOENT
+            })?;
+
+            let attr = self.path_to_attr(ino, path).await?;
+
+            Ok((ino, attr))
         } else {
+            warn!("unable to create file {:?} {:?}", dirid, dirname);
             Err(nfsstat3::NFS3ERR_NOENT)
         }
     }
 
-    async fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
-        debug!("getattr {:?}", id);
-
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
-
-        self.path_to_attr(id, &path).await
-    }
-    async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
-        debug!("setattr {:?} {:?}", id, setattr);
-
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
-
-        let attrs = self.path_to_attr(id, &path).await?;
-
-        Ok(attrs)
+    /// Removes a file.
+    /// If not supported dur to readonly file system
+    /// this should return Err(nfsstat3::NFS3ERR_ROFS)
+    #[allow(unused)]
+    async fn remove(&self, dirid: fileid3, filename: &filename3) -> Result<(), nfsstat3> {
+        debug!("remove {:?} {:?}", dirid, filename);
+        return Err(nfsstat3::NFS3ERR_NOTSUPP);
     }
 
-    async fn read(
+    /// Removes a file.
+    /// If not supported dur to readonly file system
+    /// this should return Err(nfsstat3::NFS3ERR_ROFS)
+    #[allow(unused)]
+    async fn rename(
         &self,
-        id: fileid3,
-        offset: u64,
-        count: u32,
-    ) -> Result<(Vec<u8>, bool), nfsstat3> {
-        debug!("read {:?} {:?} {:?}", id, offset, count);
-
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
-
-        let data = self
-            .operator
-            .read_with(&path)
-            .range(offset..offset + count as u64)
-            .await;
-
-        match data {
-            Ok(data) => {
-                let eof = data.len() < count as usize;
-                Ok((data.to_vec(), eof))
-            }
-            Err(e) => {
-                warn!("read error: {:?}", e);
-                Err(nfsstat3::NFS3ERR_NOENT)
-            }
-        }
+        from_dirid: fileid3,
+        from_filename: &filename3,
+        to_dirid: fileid3,
+        to_filename: &filename3,
+    ) -> Result<(), nfsstat3> {
+        debug!(
+            "rename {:?} {:?} {:?} {:?}",
+            from_dirid, from_filename, to_dirid, to_filename
+        );
+        return Err(nfsstat3::NFS3ERR_NOTSUPP);
     }
 
     async fn readdir(
@@ -309,63 +366,6 @@ impl NFSFileSystem for OpendalFs {
         }
 
         Ok(ReadDirResult { entries, end: true })
-    }
-
-    /// Removes a file.
-    /// If not supported dur to readonly file system
-    /// this should return Err(nfsstat3::NFS3ERR_ROFS)
-    #[allow(unused)]
-    async fn remove(&self, dirid: fileid3, filename: &filename3) -> Result<(), nfsstat3> {
-        debug!("remove {:?} {:?}", dirid, filename);
-        return Err(nfsstat3::NFS3ERR_NOTSUPP);
-    }
-
-    /// Removes a file.
-    /// If not supported dur to readonly file system
-    /// this should return Err(nfsstat3::NFS3ERR_ROFS)
-    #[allow(unused)]
-    async fn rename(
-        &self,
-        from_dirid: fileid3,
-        from_filename: &filename3,
-        to_dirid: fileid3,
-        to_filename: &filename3,
-    ) -> Result<(), nfsstat3> {
-        debug!(
-            "rename {:?} {:?} {:?} {:?}",
-            from_dirid, from_filename, to_dirid, to_filename
-        );
-        return Err(nfsstat3::NFS3ERR_NOTSUPP);
-    }
-
-    #[allow(unused)]
-    async fn mkdir(
-        &self,
-        dirid: fileid3,
-        dirname: &filename3,
-    ) -> Result<(fileid3, fattr3), nfsstat3> {
-        debug!("mkdir {:?} {:?}", dirid, dirname);
-
-        let dirname = std::str::from_utf8(&dirname.0);
-        let path = self.inode_to_path(dirid).await;
-
-        if let (Ok(dirname), Some(path)) = (dirname, path) {
-            let path = Path::new(&path).join(dirname);
-            let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?;
-            let ino = self.path_to_inode(path, true).await?;
-
-            self.operator.create_dir(path).await.map_err(|e| {
-                warn!("unable to create dir {:?} {:?}: {:?}", dirid, dirname, e);
-                nfsstat3::NFS3ERR_NOENT
-            })?;
-
-            let attr = self.path_to_attr(ino, path).await?;
-
-            Ok((ino, attr))
-        } else {
-            warn!("unable to create file {:?} {:?}", dirid, dirname);
-            Err(nfsstat3::NFS3ERR_NOENT)
-        }
     }
 
     async fn symlink(

@@ -66,6 +66,10 @@ async fn main() -> anyhow::Result<()> {
     info!("Unmounting NFS service");
     FsMounter::umount(mount_point).await?;
 
+    info!("Sending termination signal");
+    cancellation_token.cancel();
+    task_tracker.wait().await;
+
     info!("Clean exit");
 
     Ok(())
