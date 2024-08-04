@@ -42,8 +42,7 @@ impl TestFixture {
         let base_root = root.path().join("base");
 
         let base = {
-            let mut builder = Fs::default();
-            builder.root(base_root.to_str().unwrap());
+            let builder = Fs::default().root(base_root.to_str().unwrap());
 
             Operator::new(builder)?.finish()
         };

@@ -20,8 +20,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut sig_term = signal(SignalKind::terminate())?;
 
-    let mut builder = Fs::default();
-    builder.root(".");
+    let builder = Fs::default().root(".");
     let op = Operator::new(builder)?.finish();
 
     let cancellation_token = CancellationToken::new();
