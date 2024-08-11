@@ -13,7 +13,7 @@ use nfsserve::{
 use opendal::Operator;
 use tokio::sync::RwLock;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OpendalFs {
     operator: Operator,
     inodes: Arc<RwLock<BiMap<u64, String>>>,

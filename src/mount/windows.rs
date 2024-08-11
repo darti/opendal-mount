@@ -1,10 +1,13 @@
-fn build_mount_command(
+fn build_mount_command<P>(
     ip: String,
     hostport: u16,
     prefix: &str,
-    mount_drive: String,
+    mount_drive: P,
     writable: bool,
-) -> Result<Command> {
+) -> Result<Command>
+where
+    P: AsRef<Path>,
+{
     debug_assert_eq!(mount_drive.len(), 1);
     debug_assert_eq!(mount_drive, mount_drive.to_uppercase());
 

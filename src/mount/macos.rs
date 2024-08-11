@@ -1,5 +1,7 @@
 pub struct MacosMounter;
 
+use std::path::Path;
+
 use crate::mount::Mounter;
 use tokio::process::Command;
 
@@ -8,13 +10,16 @@ impl Mounter for MacosMounter {
         true
     }
 
-    fn mount_command(
+    fn mount_command<P>(
         ip: &str,
         hostport: u16,
         prefix: &str,
-        mount_path: &str,
+        mount_path: P,
         writable: bool,
-    ) -> Command {
+    ) -> Command
+    where
+        P: AsRef<Path>,
+    {
         let mut ret = Command::new("/sbin/mount");
         ret.arg("-t").arg("nfs");
         if writable {
@@ -27,13 +32,19 @@ impl Mounter for MacosMounter {
             ));
         }
 
-        ret.arg(format!("{}:/{}", &ip, prefix)).arg(mount_path);
+        ret.arg(format!("{}:/{}", &ip, prefix))
+            .arg(mount_path.as_ref().as_os_str());
         ret
     }
 
-    fn umount_command(mount_path: &str) -> Command {
+    fn umount_command<P>(mount_path: P) -> Command
+    where
+        P: AsRef<Path>,
+    {
         let mut cmd = Command::new("diskutil");
-        cmd.arg("umount").arg("force").arg(mount_path);
+        cmd.arg("umount")
+            .arg("force")
+            .arg(mount_path.as_ref().as_os_str());
 
         cmd
     }

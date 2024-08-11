@@ -1,11 +1,14 @@
-fn build_mount_command(
+fn build_mount_command<P>(
     ip: String,
     hostport: u16,
     prefix: &str,
-    mount_path: String,
+    mount_path: impl AsRef<Path>,
     writable: bool,
     sudo: bool,
-) -> Command {
+) -> Command
+where
+    P: AsRef<Path>,
+{
     let mut ret = if sudo {
         let mut sudocmd = Command::new("sudo");
         sudocmd.arg("mount.nfs");
