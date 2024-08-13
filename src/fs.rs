@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiMap;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
