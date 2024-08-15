@@ -67,8 +67,8 @@ impl OpendalFs {
         }
     }
 
-    async fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
-        let meta = self.operator.stat(path).await.map_err(|e| {
+    fn path_to_attr(&self, ino: u64, path: &str) -> Result<fattr3, nfsstat3> {
+        let meta = self.operator.blocking().stat(path).map_err(|e| {
             warn!("unable to get metadata for {:?}: {}", path, e);
             nfsstat3::NFS3ERR_NOENT
         })?;
@@ -146,7 +146,7 @@ impl NFSFileSystem for OpendalFs {
 
         let path = self.inode_to_path(id)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        self.path_to_attr(id, &path).await
+        self.path_to_attr(id, &path)
     }
 
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
@@ -154,7 +154,7 @@ impl NFSFileSystem for OpendalFs {
 
         let path = self.inode_to_path(id)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
-        let attrs = self.path_to_attr(id, &path).await?;
+        let attrs = self.path_to_attr(id, &path)?;
 
         Ok(attrs)
     }
@@ -212,7 +212,7 @@ impl NFSFileSystem for OpendalFs {
                     })
             }?;
 
-            let attr = self.path_to_attr(id, &path).await?;
+            let attr = self.path_to_attr(id, &path)?;
 
             Ok(attr)
         } else {
@@ -285,7 +285,7 @@ impl NFSFileSystem for OpendalFs {
                 nfsstat3::NFS3ERR_NOENT
             })?;
 
-            let attr = self.path_to_attr(ino, path).await?;
+            let attr = self.path_to_attr(ino, path)?;
 
             Ok((ino, attr))
         } else {
