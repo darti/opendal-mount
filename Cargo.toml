@@ -11,7 +11,7 @@ anyhow = "1.0.86"
 
 log = "0.4.22"
 
-opendal = { version = "0.48", features = ["services-sftp", "services-fs"] }
+opendal = { version = "0.49", features = ["services-sftp", "services-fs"] }
 nfsserve = { version = "0.10.1", path = "../nfsserve" }
 
 bimap = "0.6.3"
@@ -49,6 +49,7 @@ tokio-console = "0.1.12"
 ctor = "0.2.8"
 pretty_assertions = "1.4.0"
 tempfile = "3.10.1"
+opendal = { version = "0.49.0", features = ["services-memory"] }
 
 [features]
 default = ["tracing"]
