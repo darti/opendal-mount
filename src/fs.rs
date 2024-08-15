@@ -5,13 +5,13 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiMap;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use nfsserve::{
     nfs::{fattr3, fileid3, filename3, ftype3, nfspath3, nfsstat3, nfstime3, sattr3, specdata3},
     vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities},
 };
 use opendal::Operator;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 
 #[derive(Clone, Debug)]
 pub struct OpendalFs {
@@ -32,12 +32,24 @@ impl OpendalFs {
         }
     }
 
-    async fn inode_to_path(&self, inode: u64) -> Option<String> {
-        self.inodes.read().await.get_by_left(&inode).cloned()
+    fn inode_to_path(&self, inode: u64) -> Result<Option<String>, nfsstat3> {
+        let path = self
+            .inodes
+            .read()
+            .map_err(|_| nfsstat3::NFS3ERR_IO)?
+            .get_by_left(&inode)
+            .cloned();
+
+        Ok(path)
     }
 
-    async fn path_to_inode(&self, path: &str, insert: bool) -> Result<u64, nfsstat3> {
-        let ino = self.inodes.read().await.get_by_right(path).copied();
+    fn path_to_inode(&self, path: &str, insert: bool) -> Result<u64, nfsstat3> {
+        let ino = self
+            .inodes
+            .read()
+            .map_err(|_| nfsstat3::NFS3ERR_IO)?
+            .get_by_right(path)
+            .copied();
 
         match ino {
             Some(ino) => Ok(ino),
@@ -46,7 +58,7 @@ impl OpendalFs {
                     .next_ino
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-                let mut inodes = self.inodes.write().await;
+                let mut inodes = self.inodes.write().map_err(|_| nfsstat3::NFS3ERR_IO)?;
                 (*inodes).insert(ino, path.to_owned());
 
                 Ok(ino)
@@ -118,12 +130,12 @@ impl NFSFileSystem for OpendalFs {
         debug!("lookup {:?} {:?}", dirid, filename);
 
         let filename = std::str::from_utf8(&filename.0);
-        let path = self.inode_to_path(dirid).await;
+        let path = self.inode_to_path(dirid)?;
 
         if let (Ok(filename), Some(path)) = (filename, path) {
             let path = Path::new(&path).join(filename);
 
-            self.path_to_inode(&path.display().to_string(), false).await
+            self.path_to_inode(&path.display().to_string(), false)
         } else {
             Err(nfsstat3::NFS3ERR_NOENT)
         }
@@ -132,10 +144,7 @@ impl NFSFileSystem for OpendalFs {
     async fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
         debug!("getattr {:?}", id);
 
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+        let path = self.inode_to_path(id)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
         self.path_to_attr(id, &path).await
     }
@@ -143,10 +152,7 @@ impl NFSFileSystem for OpendalFs {
     async fn setattr(&self, id: fileid3, setattr: sattr3) -> Result<fattr3, nfsstat3> {
         debug!("setattr {:?} {:?}", id, setattr);
 
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+        let path = self.inode_to_path(id)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
         let attrs = self.path_to_attr(id, &path).await?;
 
@@ -161,10 +167,7 @@ impl NFSFileSystem for OpendalFs {
     ) -> Result<(Vec<u8>, bool), nfsstat3> {
         debug!("read {:?} from {:?} count {:?}", id, offset, count);
 
-        let path = self
-            .inode_to_path(id)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+        let path = self.inode_to_path(id)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
         let data = self
             .operator
@@ -187,7 +190,7 @@ impl NFSFileSystem for OpendalFs {
     async fn write(&self, id: fileid3, offset: u64, data: &[u8]) -> Result<fattr3, nfsstat3> {
         debug!("write {:?} {:?} {:?}", id, offset, data);
 
-        let path = self.inode_to_path(id).await;
+        let path = self.inode_to_path(id)?;
 
         if let Some(path) = path {
             if offset == 0 {
@@ -225,13 +228,11 @@ impl NFSFileSystem for OpendalFs {
         debug!("create {:?} {:?}", dirid, filename);
 
         let filename = std::str::from_utf8(&filename.0);
-        let path = self.inode_to_path(dirid).await;
+        let path = self.inode_to_path(dirid)?;
 
         if let (Ok(filename), Some(path)) = (filename, path) {
             let path = Path::new(&path).join(filename);
-            let ino = self
-                .path_to_inode(&path.display().to_string(), true)
-                .await?;
+            let ino = self.path_to_inode(&path.display().to_string(), true)?;
 
             self.write(ino, 0, &[]).await.map(|attr| (ino, attr))
         } else {
@@ -248,13 +249,11 @@ impl NFSFileSystem for OpendalFs {
         debug!("create_exclusive {:?} {:?}", dirid, filename);
 
         let filename = std::str::from_utf8(&filename.0);
-        let path = self.inode_to_path(dirid).await;
+        let path = self.inode_to_path(dirid)?;
 
         if let (Ok(filename), Some(path)) = (filename, path) {
             let path = Path::new(&path).join(filename);
-            let ino = self
-                .path_to_inode(&path.display().to_string(), true)
-                .await?;
+            let ino = self.path_to_inode(&path.display().to_string(), true)?;
 
             self.write(ino, 0, &[0]).await?;
 
@@ -274,12 +273,12 @@ impl NFSFileSystem for OpendalFs {
         debug!("mkdir {:?} {:?}", dirid, dirname);
 
         let dirname = std::str::from_utf8(&dirname.0);
-        let path = self.inode_to_path(dirid).await;
+        let path = self.inode_to_path(dirid)?;
 
         if let (Ok(dirname), Some(path)) = (dirname, path) {
             let path = Path::new(&path).join(dirname);
             let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?;
-            let ino = self.path_to_inode(path, true).await?;
+            let ino = self.path_to_inode(path, true)?;
 
             self.operator.create_dir(path).await.map_err(|e| {
                 warn!("unable to create dir {:?} {:?}: {:?}", dirid, dirname, e);
@@ -330,10 +329,7 @@ impl NFSFileSystem for OpendalFs {
     ) -> Result<ReadDirResult, nfsstat3> {
         debug!("readdir {:?} {:?} {:?}", dirid, start_after, max_entries);
 
-        let path = self
-            .inode_to_path(dirid)
-            .await
-            .ok_or(nfsstat3::NFS3ERR_NOENT)?;
+        let path = self.inode_to_path(dirid)?.ok_or(nfsstat3::NFS3ERR_NOENT)?;
 
         let ds = self
             .operator
@@ -346,7 +342,7 @@ impl NFSFileSystem for OpendalFs {
         let mut capture: bool = start_after == 0;
 
         for de in ds {
-            let id = self.path_to_inode(de.path(), true).await?;
+            let id = self.path_to_inode(de.path(), true)?;
 
             if capture {
                 if let Ok(attr) = self.getattr(id).await {
