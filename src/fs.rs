@@ -300,7 +300,20 @@ impl NFSFileSystem for OpendalFs {
     #[allow(unused)]
     async fn remove(&self, dirid: fileid3, filename: &filename3) -> Result<(), nfsstat3> {
         debug!("remove {:?} {:?}", dirid, filename);
-        return Err(nfsstat3::NFS3ERR_NOTSUPP);
+
+        let filename = std::str::from_utf8(&filename.0);
+        let path = self.inode_to_path(dirid)?;
+
+        if let (Ok(dirname), Some(path)) = (filename, path) {
+            let path = Path::new(&path).join(dirname);
+            let path = path.to_str().ok_or(nfsstat3::NFS3ERR_NOENT)?.to_owned();
+
+            self.operator.remove(vec![path]);
+
+            Ok(())
+        } else {
+            Err(nfsstat3::NFS3ERR_NOTSUPP)
+        }
     }
 
     /// Removes a file.
